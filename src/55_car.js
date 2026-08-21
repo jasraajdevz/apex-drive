@@ -295,10 +295,16 @@ function buildCar(spec) {
   /* ---------------- optional racing stripe ---------------- */
   const stripe = new Geo();
   {
-    const w = Math.max(2, Math.round(CAR_SECT * 0.055));
+    const w = 1;                       // a 3-point band across the very top
     const q2 = CAR_SECT / 4;
-    stripe.append(loftBand(bs, q2 - w, q2 + w, 0.010), I);
-    stripe.append(loftBand(cs, q2 - w, q2 + w, 0.020), I);
+    // only the bonnet and boot decks, never the nose and tail caps where the
+    // outline collapses and the band fans out into a slab
+    const deck = bs.filter(st => {
+      const t = (st.z + L / 2) / L;
+      return t > 0.10 && t < 0.90;
+    });
+    if (deck.length > 2) stripe.append(loftBand(deck, q2 - w, q2 + w, 0.008), I);
+    stripe.append(loftBand(cs, q2 - w, q2 + w, 0.016), I);
   }
 
   /* ---------------- per-model signature bodywork ---------------- */
@@ -336,7 +342,8 @@ const CAR_SPECS = [
     grilleY: .44, lightY: .68, lampW: .30, tailY: .76, tailBar: 1, deckY: .96,
     axleF: 1.42, axleR: -1.36, trackF: .82, trackR: .86,
     wing: { z: .34, y: 1.02, chord: .30, h: .20, gurney: 1 },
-    sig: { midEngine: 1, roofScoop: 0, canards: 1 },
+    sig: { midEngine: 1, buttress: 1, louvres: 1, yLamps: 1,
+           centreExhaust: 1, finTail: 1, canards: 1 },
     profile: {
       width: [.66, .92, 1.00, 1.00, 1.00, .96, .78],
       sill:  [.26, .14, .11, .11, .11, .15, .28],

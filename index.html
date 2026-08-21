@@ -64,7 +64,7 @@
       <button class="mi" data-act="race"><span>Checkpoint Run</span><em>beat the clock</em></button>
       <button class="mi" data-act="drift"><span>Drift Attack</span><em>score on the slide</em></button>
       <button class="mi" data-act="speed"><span>Speed Trap</span><em>terminal velocity</em></button>
-      <button class="mi" data-act="shop"><span>Garage &amp; Shop</span><em>build the thing</em></button>
+      <button class="mi" data-act="shop"><span>Garage</span><em>buy · tune · paint · stats</em></button>
       <button class="mi" data-act="settings"><span>Settings</span><em>graphics · audio · world</em></button>
     </nav>
     <div class="hint">
@@ -724,6 +724,21 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
 }
 .sw.none{display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--dim);
   background:rgba(255,255,255,.06)}
+
+/* ---------- spec sheet ---------- */
+.sheet{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:11px;
+  padding:6px 14px;margin-bottom:16px}
+.srow{display:flex;align-items:center;gap:12px;padding:8px 0;
+  border-top:1px solid rgba(255,255,255,.05)}
+.srow:first-child{border-top:0}
+.srow u{text-decoration:none;flex:0 0 132px;font-size:11px;letter-spacing:1.8px;
+  text-transform:uppercase;color:var(--dim)}
+.srow b{font-size:15px;font-weight:700;flex:0 0 auto;min-width:150px}
+.srow .sbar{flex:1;height:3px;border-radius:3px;background:rgba(255,255,255,.10);
+  overflow:hidden;font-style:normal}
+.srow .sbar s{display:block;height:100%;text-decoration:none;
+  background:linear-gradient(90deg,var(--accent),#2a86ff)}
+@media (max-width:900px){ .srow u{flex-basis:96px} .srow b{min-width:96px;font-size:13px} }
 
 </style>
 <script>
@@ -2824,6 +2839,9 @@ function geoTorusArc(R, r, a0, a1, seg = 18, sides = 8) {
 function geoRounded(w, h, d, r = .08, seg = 8) {
   const g = new Geo();
   const rings = seg, cols = seg * 4;
+  // a radius larger than half of any dimension makes that half-extent negative,
+  // which turns the box inside out and produces a huge inverted slab
+  r = Math.min(r, w * .49, h * .49, d * .49);
   const hw = w / 2 - r, hh = h / 2 - r, hd = d / 2 - r;
   for (let j = 0; j <= rings; j++) {
     const v = j / rings, phi = v * PI, sp = Math.sin(phi), cp = Math.cos(phi);
@@ -3290,6 +3308,83 @@ function addDetail(spec, G, H) {
     for (const sx of [-1, 1])
       chrome.append(geoLatheX([[0.030, 0], [0.034, 0.014]], 10, true), T(sx * bodyW * 0.36, hy + 0.012, hz));
   }
+  /* ---------------- flying buttresses (mid-engine signature) ---------------- */
+  if (sig.buttress) {
+    const C = spec.profile.cabin;
+    const ry = catmull(C.roof, 0.06);
+    const rw = catmull(C.width, 0.06) * bodyW * 0.5;
+    const endZ = C.z0 - 1.05;
+    const endY = spec.deckY - 0.06;
+    const endW = bodyW * 0.48;
+    const N = 9;
+    for (const sx of [-1, 1]) {
+      for (let i = 0; i < N; i++) {
+        const t0 = i / N, t1 = (i + 1) / N;
+        const at = t => {
+          const e = t * t;                       // sweeps away fast, like a real buttress
+          return [sx * lerp(rw, endW, t), lerp(ry, endY, e), lerp(C.z0 + 0.04, endZ, t)];
+        };
+        const a = at(t0), b = at(t1);
+        const dz = b[2] - a[2], dy = b[1] - a[1], dx = b[0] - a[0];
+        const len = Math.hypot(dz, dy) || 0.01;
+        const m = M4.n();
+        const ca = dz / len, sa2 = dy / len;
+        m[0] = 1; m[5] = ca; m[6] = sa2; m[9] = -sa2; m[10] = ca;
+        m[12] = (a[0] + b[0]) * 0.5; m[13] = (a[1] + b[1]) * 0.5; m[14] = (a[2] + b[2]) * 0.5;
+        const h = lerp(0.16, 0.09, t0);
+        paint.append(geoBox(Math.abs(dx) + 0.075, h, len * 1.12), m);
+      }
+    }
+  }
+
+  /* ---------------- bonnet and arch louvres ---------------- */
+  if (sig.louvres) {
+    const hz = lerp(spec.axleF, L * 0.5, 0.34);
+    const hy = belt((hz + L / 2) / L);
+    for (const sx of [-1, 1]) for (let i = 0; i < 4; i++)
+      dark.append(geoBox(bodyW * 0.19, 0.022, 0.055),
+        RX(sx * bodyW * 0.24, hy + 0.012, hz - 0.10 + i * 0.10, 0.28));
+    // louvres venting the front arches
+    for (const sx of [-1, 1]) for (let i = 0; i < 3; i++)
+      dark.append(geoBox(0.035, 0.024, 0.20),
+        T(sx * (bodyW * 0.5 - 0.01), belt(0.74) - 0.05 - i * 0.055, spec.axleF - 0.30));
+  }
+
+  /* ---------------- Y-shaped daytime running lights ---------------- */
+  if (sig.yLamps) {
+    const hz = L * 0.5 - 0.09;
+    for (const sx of [-1, 1]) {
+      lightF.append(geoBox(0.028, 0.026, 0.16), RX(sx * (W * 0.30), spec.lightY + 0.03, hz + 0.02, 0));
+      for (const o of [-1, 1])
+        lightF.append(geoBox(0.026, 0.026, 0.13),
+          M4.mul(M4.n(), T(sx * (W * 0.30) + o * 0.045, spec.lightY - 0.055, hz + 0.02),
+            (() => { const r = M4.n(), a2 = o * 0.55, c = Math.cos(a2), sn = Math.sin(a2); r[0] = c; r[1] = sn; r[4] = -sn; r[5] = c; return r; })()));
+    }
+  }
+
+  /* ---------------- stacked centre-exit exhausts ---------------- */
+  if (sig.centreExhaust) {
+    const ez = -L * 0.5 + 0.14;
+    const ey = catmull(spec.profile.sill, 0.06) + 0.20;
+    const rotZ = () => { const r = M4.n(); r[5] = 0; r[6] = -1; r[9] = 1; r[10] = 0; return r; };
+    for (const sx of [-1, 1]) for (const oy of [0, 1]) {
+      chrome.append(geoLatheX([[0.052, -0.09], [0.058, 0.02], [0.050, 0.05]], 16, true),
+        M4.mul(M4.n(), T(sx * 0.085, ey + oy * 0.115, ez), rotZ()));
+      dark.append(geoLatheX([[0.040, 0], [0.040, 0.06]], 12, true),
+        M4.mul(M4.n(), T(sx * 0.085, ey + oy * 0.115, ez + 0.03), rotZ()));
+    }
+    dark.append(geoBox(0.34, 0.30, 0.16), T(0, ey + 0.055, ez - 0.06));
+  }
+
+  /* ---------------- finned full-width tail bar ---------------- */
+  if (sig.finTail) {
+    const tz = -L * 0.5 + 0.11;
+    for (let i = -5; i <= 5; i++)
+      dark.append(geoBox(0.022, 0.11, 0.07), T(i * W * 0.072, spec.tailY, tz + 0.03));
+    for (const sx of [-1, 1])
+      chrome.append(geoBox(0.03, 0.13, 0.08), T(sx * W * 0.40, spec.tailY, tz + 0.03));
+  }
+
   if (sig.roofScoop && !sig.midEngine) {
     const tt = 0.30;
     const ry = catmull(spec.profile.cabin.roof, tt);
@@ -3599,10 +3694,16 @@ function buildCar(spec) {
   /* ---------------- optional racing stripe ---------------- */
   const stripe = new Geo();
   {
-    const w = Math.max(2, Math.round(CAR_SECT * 0.055));
+    const w = 1;                       // a 3-point band across the very top
     const q2 = CAR_SECT / 4;
-    stripe.append(loftBand(bs, q2 - w, q2 + w, 0.010), I);
-    stripe.append(loftBand(cs, q2 - w, q2 + w, 0.020), I);
+    // only the bonnet and boot decks, never the nose and tail caps where the
+    // outline collapses and the band fans out into a slab
+    const deck = bs.filter(st => {
+      const t = (st.z + L / 2) / L;
+      return t > 0.10 && t < 0.90;
+    });
+    if (deck.length > 2) stripe.append(loftBand(deck, q2 - w, q2 + w, 0.008), I);
+    stripe.append(loftBand(cs, q2 - w, q2 + w, 0.016), I);
   }
 
   /* ---------------- per-model signature bodywork ---------------- */
@@ -3640,7 +3741,8 @@ const CAR_SPECS = [
     grilleY: .44, lightY: .68, lampW: .30, tailY: .76, tailBar: 1, deckY: .96,
     axleF: 1.42, axleR: -1.36, trackF: .82, trackR: .86,
     wing: { z: .34, y: 1.02, chord: .30, h: .20, gurney: 1 },
-    sig: { midEngine: 1, roofScoop: 0, canards: 1 },
+    sig: { midEngine: 1, buttress: 1, louvres: 1, yLamps: 1,
+           centreExhaust: 1, finTail: 1, canards: 1 },
     profile: {
       width: [.66, .92, 1.00, 1.00, 1.00, .96, .78],
       sill:  [.26, .14, .11, .11, .11, .15, .28],
@@ -6166,8 +6268,8 @@ const RIMS = [
    Save state
    ============================================================ */
 const Garage = {
-  KEY: 'apexdrive.save.v2',
-  cash: 32000,
+  KEY: 'apexdrive.save.v3',
+  cash: 0,
   owned: {},          // carId -> true
   cars: {},           // carId -> { parts:{}, engine:'stock', paint, finish, rim, tint, cur }
   current: 'bruiser',
@@ -7288,7 +7390,7 @@ const Shop = {
 
   buildRail() {
     const groups = [
-      ['Showroom', [['cars', '🚗', 'Cars'], ['visual', '🎨', 'Appearance']]],
+      ['Showroom', [['cars', '🚗', 'Cars'], ['visual', '🎨', 'Appearance'], ['stats', '📊', 'Stats']]],
       ['Powertrain', [['engine', '🔧', 'Engine'], ['forced', PARTS.forced.icon, PARTS.forced.n],
       ['intake', PARTS.intake.icon, PARTS.intake.n], ['exhaust', PARTS.exhaust.icon, PARTS.exhaust.n],
       ['ecu', PARTS.ecu.icon, PARTS.ecu.n], ['cooling', PARTS.cooling.icon, PARTS.cooling.n],
@@ -7334,7 +7436,8 @@ const Shop = {
       else if (c === 'engine') s.textContent = g.engine !== 'stock' ? 'SWAP' : '';
       else s.textContent = '';
     });
-    if (this.cat === 'cars') this.renderCars();
+    if (this.cat === 'stats') this.renderStats();
+    else if (this.cat === 'cars') this.renderCars();
     else if (this.cat === 'engine') this.renderEngines();
     else if (this.cat === 'visual') this.renderVisual();
     else this.renderParts(this.cat);
@@ -7434,6 +7537,49 @@ const Shop = {
       const g2 = Garage.car(), old = g2.parts[cat];
       g2.parts[cat] = i; const ph = buildPhys(Garage.current); g2.parts[cat] = old; return ph;
     }));
+  },
+
+  renderStats() {
+    const ph = buildPhys(Garage.current);
+    const st = statsFor(ph);
+    const spec = specById(Garage.current);
+    const g = Garage.car();
+    const S = Garage.stats || {};
+    const dmg = Math.max(g.damage || 0, (Game.player ? Game.player.damage : 0) || 0);
+
+    const row = (k, v, bar) => `<div class="srow"><u>${k}</u><b>${v}</b>${
+      bar === undefined ? '' : `<i class="sbar"><s style="width:${clamp(bar, 2, 100).toFixed(0)}%"></s></i>`}</div>`;
+
+    const gears = ph.gears.length + ' speed' + (ph.parts && ph.parts.gearbox ? ' · ' + ph.parts.gearbox.n : '');
+    const induction = ph.forced === 'none' ? 'Naturally aspirated'
+      : (ph.forced === 'turbo' ? 'Turbocharged' : 'Supercharged') + ' · ' + ph.maxBoostPsi.toFixed(1) + ' psi';
+
+    this.el.list.innerHTML =
+      `<h3>${spec.name} — specification</h3><div class="sheet">` +
+      row('Peak power', st.hp + ' hp @ ' + st.hpRpm + ' rpm', st.hp / 9) +
+      row('Peak torque', st.nm + ' Nm @ ' + st.nmRpm + ' rpm', st.nm / 11) +
+      row('Redline', Math.round(ph.redline) + ' rpm', (ph.redline - 5000) / 50) +
+      row('0–100 km/h', st.zero100.toFixed(1) + ' s', 120 - st.zero100 * 20) +
+      row('Top speed', st.vmax + ' km/h', st.vmax / 3.6) +
+      row('Kerb weight', st.mass + ' kg', 100 - (st.mass - 900) / 12) +
+      row('Power / tonne', st.pwr.toFixed(0) + ' hp/t', st.pwr / 6) +
+      row('Induction', induction) +
+      row('Drivetrain', ph.drive.toUpperCase() + ' · ' + gears) +
+      row('Differential', (ph.diffLock * 100).toFixed(0) + '% lock', ph.diffLock * 100) +
+      row('Grip index', st.grip.toFixed(2), (st.grip - 1) * 90) +
+      row('Braking', ph.brake.toFixed(2) + ' g', ph.brake * 32) +
+      row('Downforce', (ph.dfR * 100).toFixed(0), ph.dfR * 45) +
+      row('Nitrous', ph.nosShot ? '+' + (ph.nosShot * 100).toFixed(0) + '% for ' + ph.nosTank + ' s' : 'Not fitted') +
+      row('Condition', dmg > 0.01 ? (100 - dmg * 100).toFixed(0) + '%' : 'Pristine', 100 - dmg * 100) +
+      '</div>' +
+      '<h3>Career</h3><div class="sheet">' +
+      row('Distance driven', ((S.distance || 0) / 1000).toFixed(1) + ' km') +
+      row('Top speed ever', Math.round(S.topSpeed || 0) + ' km/h') +
+      row('Best drift score', Math.round(S.drift || 0).toLocaleString('en-US')) +
+      row('Routes completed', (S.races || 0)) +
+      row('Total earned', money(S.earned || 0)) +
+      row('Cars owned', Object.keys(Garage.owned).length + ' / ' + CAR_SPECS.length) +
+      '</div>';
   },
 
   renderVisual() {
@@ -8992,8 +9138,8 @@ const Game = {
       Garage.stats.distance += p.speed * dt;
       if (kmh > Garage.stats.topSpeed) Garage.stats.topSpeed = kmh;
       // passive earnings so free roam still pays
-      this._payAcc = (this._payAcc || 0) + p.speed * dt * 0.26 * (1 + p.driftAmount * 4) * (1 + clamp01((Math.abs(p.fwdSpeed) * 3.6 - 110) / 150));
-      if (this._payAcc > 45) { const v = Math.floor(this._payAcc); this._payAcc = 0; Garage.add(v); }
+      this._payAcc = (this._payAcc || 0) + p.speed * dt * 0.42 * (1 + p.driftAmount * 4) * (1 + clamp01((Math.abs(p.fwdSpeed) * 3.6 - 110) / 150));
+      if (this._payAcc > 25) { const v = Math.floor(this._payAcc); this._payAcc = 0; Garage.add(v); }
       this._saveT = (this._saveT || 0) + dt;
       if (this._saveT > 12) { this._saveT = 0; Garage.car().damage = p.damage; Garage.save(); }
     }
@@ -9376,7 +9522,8 @@ const Game = {
     const dk = 1 - dmg * .35;
     const B = this.carBatches;
     B.paint.push(m, pm.c[0] * dk, pm.c[1] * dk, pm.c[2] * dk, dr, pm.metal * (1 - dmg * .6), 0, M_PAINT, 0);
-    const st = Garage.car().stripe | 0;
+    const gs = Garage.car();
+    const st = (gs.stripe === undefined || gs.stripe === null) ? -1 : (gs.stripe | 0);
     if (st >= 0 && B.stripe) {
       const sc = srgb2lin(hex2rgb(PAINTS[st % PAINTS.length].c));
       B.stripe.push(m, sc[0] * dk, sc[1] * dk, sc[2] * dk, dr, pm.metal * (1 - dmg * .6), 0, M_PAINT, 0);

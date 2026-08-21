@@ -416,3 +416,18 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
 }
 .sw.none{display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--dim);
   background:rgba(255,255,255,.06)}
+
+/* ---------- spec sheet ---------- */
+.sheet{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:11px;
+  padding:6px 14px;margin-bottom:16px}
+.srow{display:flex;align-items:center;gap:12px;padding:8px 0;
+  border-top:1px solid rgba(255,255,255,.05)}
+.srow:first-child{border-top:0}
+.srow u{text-decoration:none;flex:0 0 132px;font-size:11px;letter-spacing:1.8px;
+  text-transform:uppercase;color:var(--dim)}
+.srow b{font-size:15px;font-weight:700;flex:0 0 auto;min-width:150px}
+.srow .sbar{flex:1;height:3px;border-radius:3px;background:rgba(255,255,255,.10);
+  overflow:hidden;font-style:normal}
+.srow .sbar s{display:block;height:100%;text-decoration:none;
+  background:linear-gradient(90deg,var(--accent),#2a86ff)}
+@media (max-width:900px){ .srow u{flex-basis:96px} .srow b{min-width:96px;font-size:13px} }

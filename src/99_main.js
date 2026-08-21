@@ -663,8 +663,8 @@ const Game = {
       Garage.stats.distance += p.speed * dt;
       if (kmh > Garage.stats.topSpeed) Garage.stats.topSpeed = kmh;
       // passive earnings so free roam still pays
-      this._payAcc = (this._payAcc || 0) + p.speed * dt * 0.26 * (1 + p.driftAmount * 4) * (1 + clamp01((Math.abs(p.fwdSpeed) * 3.6 - 110) / 150));
-      if (this._payAcc > 45) { const v = Math.floor(this._payAcc); this._payAcc = 0; Garage.add(v); }
+      this._payAcc = (this._payAcc || 0) + p.speed * dt * 0.42 * (1 + p.driftAmount * 4) * (1 + clamp01((Math.abs(p.fwdSpeed) * 3.6 - 110) / 150));
+      if (this._payAcc > 25) { const v = Math.floor(this._payAcc); this._payAcc = 0; Garage.add(v); }
       this._saveT = (this._saveT || 0) + dt;
       if (this._saveT > 12) { this._saveT = 0; Garage.car().damage = p.damage; Garage.save(); }
     }
@@ -1047,7 +1047,8 @@ const Game = {
     const dk = 1 - dmg * .35;
     const B = this.carBatches;
     B.paint.push(m, pm.c[0] * dk, pm.c[1] * dk, pm.c[2] * dk, dr, pm.metal * (1 - dmg * .6), 0, M_PAINT, 0);
-    const st = Garage.car().stripe | 0;
+    const gs = Garage.car();
+    const st = (gs.stripe === undefined || gs.stripe === null) ? -1 : (gs.stripe | 0);
     if (st >= 0 && B.stripe) {
       const sc = srgb2lin(hex2rgb(PAINTS[st % PAINTS.length].c));
       B.stripe.push(m, sc[0] * dk, sc[1] * dk, sc[2] * dk, dr, pm.metal * (1 - dmg * .6), 0, M_PAINT, 0);

@@ -146,8 +146,8 @@ const RIMS = [
    Save state
    ============================================================ */
 const Garage = {
-  KEY: 'apexdrive.save.v2',
-  cash: 32000,
+  KEY: 'apexdrive.save.v3',
+  cash: 0,
   owned: {},          // carId -> true
   cars: {},           // carId -> { parts:{}, engine:'stock', paint, finish, rim, tint, cur }
   current: 'bruiser',

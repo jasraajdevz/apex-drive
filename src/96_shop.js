@@ -20,7 +20,7 @@ const Shop = {
 
   buildRail() {
     const groups = [
-      ['Showroom', [['cars', '🚗', 'Cars'], ['visual', '🎨', 'Appearance']]],
+      ['Showroom', [['cars', '🚗', 'Cars'], ['visual', '🎨', 'Appearance'], ['stats', '📊', 'Stats']]],
       ['Powertrain', [['engine', '🔧', 'Engine'], ['forced', PARTS.forced.icon, PARTS.forced.n],
       ['intake', PARTS.intake.icon, PARTS.intake.n], ['exhaust', PARTS.exhaust.icon, PARTS.exhaust.n],
       ['ecu', PARTS.ecu.icon, PARTS.ecu.n], ['cooling', PARTS.cooling.icon, PARTS.cooling.n],
@@ -66,7 +66,8 @@ const Shop = {
       else if (c === 'engine') s.textContent = g.engine !== 'stock' ? 'SWAP' : '';
       else s.textContent = '';
     });
-    if (this.cat === 'cars') this.renderCars();
+    if (this.cat === 'stats') this.renderStats();
+    else if (this.cat === 'cars') this.renderCars();
     else if (this.cat === 'engine') this.renderEngines();
     else if (this.cat === 'visual') this.renderVisual();
     else this.renderParts(this.cat);
@@ -166,6 +167,49 @@ const Shop = {
       const g2 = Garage.car(), old = g2.parts[cat];
       g2.parts[cat] = i; const ph = buildPhys(Garage.current); g2.parts[cat] = old; return ph;
     }));
+  },
+
+  renderStats() {
+    const ph = buildPhys(Garage.current);
+    const st = statsFor(ph);
+    const spec = specById(Garage.current);
+    const g = Garage.car();
+    const S = Garage.stats || {};
+    const dmg = Math.max(g.damage || 0, (Game.player ? Game.player.damage : 0) || 0);
+
+    const row = (k, v, bar) => `<div class="srow"><u>${k}</u><b>${v}</b>${
+      bar === undefined ? '' : `<i class="sbar"><s style="width:${clamp(bar, 2, 100).toFixed(0)}%"></s></i>`}</div>`;
+
+    const gears = ph.gears.length + ' speed' + (ph.parts && ph.parts.gearbox ? ' · ' + ph.parts.gearbox.n : '');
+    const induction = ph.forced === 'none' ? 'Naturally aspirated'
+      : (ph.forced === 'turbo' ? 'Turbocharged' : 'Supercharged') + ' · ' + ph.maxBoostPsi.toFixed(1) + ' psi';
+
+    this.el.list.innerHTML =
+      `<h3>${spec.name} — specification</h3><div class="sheet">` +
+      row('Peak power', st.hp + ' hp @ ' + st.hpRpm + ' rpm', st.hp / 9) +
+      row('Peak torque', st.nm + ' Nm @ ' + st.nmRpm + ' rpm', st.nm / 11) +
+      row('Redline', Math.round(ph.redline) + ' rpm', (ph.redline - 5000) / 50) +
+      row('0–100 km/h', st.zero100.toFixed(1) + ' s', 120 - st.zero100 * 20) +
+      row('Top speed', st.vmax + ' km/h', st.vmax / 3.6) +
+      row('Kerb weight', st.mass + ' kg', 100 - (st.mass - 900) / 12) +
+      row('Power / tonne', st.pwr.toFixed(0) + ' hp/t', st.pwr / 6) +
+      row('Induction', induction) +
+      row('Drivetrain', ph.drive.toUpperCase() + ' · ' + gears) +
+      row('Differential', (ph.diffLock * 100).toFixed(0) + '% lock', ph.diffLock * 100) +
+      row('Grip index', st.grip.toFixed(2), (st.grip - 1) * 90) +
+      row('Braking', ph.brake.toFixed(2) + ' g', ph.brake * 32) +
+      row('Downforce', (ph.dfR * 100).toFixed(0), ph.dfR * 45) +
+      row('Nitrous', ph.nosShot ? '+' + (ph.nosShot * 100).toFixed(0) + '% for ' + ph.nosTank + ' s' : 'Not fitted') +
+      row('Condition', dmg > 0.01 ? (100 - dmg * 100).toFixed(0) + '%' : 'Pristine', 100 - dmg * 100) +
+      '</div>' +
+      '<h3>Career</h3><div class="sheet">' +
+      row('Distance driven', ((S.distance || 0) / 1000).toFixed(1) + ' km') +
+      row('Top speed ever', Math.round(S.topSpeed || 0) + ' km/h') +
+      row('Best drift score', Math.round(S.drift || 0).toLocaleString('en-US')) +
+      row('Routes completed', (S.races || 0)) +
+      row('Total earned', money(S.earned || 0)) +
+      row('Cars owned', Object.keys(Garage.owned).length + ' / ' + CAR_SPECS.length) +
+      '</div>';
   },
 
   renderVisual() {

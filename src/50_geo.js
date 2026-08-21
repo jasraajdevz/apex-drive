@@ -196,6 +196,9 @@ function geoTorusArc(R, r, a0, a1, seg = 18, sides = 8) {
 function geoRounded(w, h, d, r = .08, seg = 8) {
   const g = new Geo();
   const rings = seg, cols = seg * 4;
+  // a radius larger than half of any dimension makes that half-extent negative,
+  // which turns the box inside out and produces a huge inverted slab
+  r = Math.min(r, w * .49, h * .49, d * .49);
   const hw = w / 2 - r, hh = h / 2 - r, hd = d / 2 - r;
   for (let j = 0; j <= rings; j++) {
     const v = j / rings, phi = v * PI, sp = Math.sin(phi), cp = Math.cos(phi);
