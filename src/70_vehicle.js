@@ -249,6 +249,7 @@ class Vehicle {
     /* ---------- wheels ---------- */
     let grounded = 0;
     const cp = [0, 0, 0], wp = [0, 0, 0], down = [0, 0, 0], cv = [0, 0, 0];
+    const gN = this._gn || (this._gn = [0, 1, 0]);
     V3.set(down, -up[0], -up[1], -up[2]);
 
     for (let i = 0; i < 4; i++) {
@@ -258,6 +259,7 @@ class Vehicle {
       V3.copy(w.wp, wp);
       const maxLen = w.rest + w.r;
       const gY = world.groundY(wp[0], wp[2]);
+      world.groundNormal(wp[0], wp[2], gN);
       let t = 1e9;
       if (down[1] < -0.15) t = (wp[1] - gY) / -down[1];
       w.prevComp = w.comp;
@@ -299,20 +301,27 @@ class Vehicle {
       w.load = susp;
 
       const rx = cp[0] - this.pos[0], ry = cp[1] - this.pos[1], rz = cp[2] - this.pos[2];
-      addForce(up[0] * susp, up[1] * susp, up[2] * susp, rx, ry, rz);
+      let sux = lerp(up[0], gN[0], 0.55), suy = lerp(up[1], gN[1], 0.55), suz = lerp(up[2], gN[2], 0.55);
+      const sul = Math.hypot(sux, suy, suz) || 1;
+      sux /= sul; suy /= sul; suz /= sul;
+      addForce(sux * susp, suy * susp, suz * susp, rx, ry, rz);
 
-      /* tyre frame projected onto the ground plane */
+      /* tyre frame projected onto the contact plane, not the horizontal —
+         this is what lets the car climb and be pulled back down by gravity */
       const st = w.steered ? this.steer : 0;
       const cs = Math.cos(st), sn = Math.sin(st);
       let fx = fwd[0] * cs + right[0] * sn, fy = fwd[1] * cs + right[1] * sn, fz = fwd[2] * cs + right[2] * sn;
-      // project onto horizontal plane
-      let fl = Math.hypot(fx, fz) || 1;
-      fx /= fl; fy = 0; fz /= fl;
-      const sx = fz, sz = -fx;   // right = fwd x up
+      const gnx = gN[0], gny = gN[1], gnz = gN[2];
+      const fd = fx * gnx + fy * gny + fz * gnz;
+      fx -= gnx * fd; fy -= gny * fd; fz -= gnz * fd;
+      let fl = Math.hypot(fx, fy, fz) || 1;
+      fx /= fl; fy /= fl; fz /= fl;
+      // right = normal x forward
+      const sx = gny * fz - gnz * fy, sy = gnz * fx - gnx * fz, sz = gnx * fy - gny * fx;
 
       this.pointVel(cv, rx, ry, rz);
-      const vF = cv[0] * fx + cv[2] * fz;
-      const vS = cv[0] * sx + cv[2] * sz;
+      const vF = cv[0] * fx + cv[1] * fy + cv[2] * fz;
+      const vS = cv[0] * sx + cv[1] * sy + cv[2] * sz;
 
       const surfMu = w.surface === 1 ? 0.86 : 1.0;
       const wetMu = this.wetness ? lerp(1, (ph.wetGrip === undefined ? 1 : ph.wetGrip) * 0.86, this.wetness) : 1;
@@ -361,11 +370,11 @@ class Vehicle {
       const skidAmt = clamp01((Math.abs(alpha) - 0.14) * 2.6) + clamp01((Math.abs(kappa) - 0.28) * 1.1);
       w.skid = damp(w.skid, clamp01(skidAmt) * clamp01(this.speed / 3), 14, dt);
 
-      addForce(fx * Fx + sx * Fy, 0, fz * Fx + sz * Fy, rx, ry, rz);
+      addForce(fx * Fx + sx * Fy, fy * Fx + sy * Fy, fz * Fx + sz * Fy, rx, ry, rz);
 
       // rolling resistance
       const rr = w.load * 0.014;
-      addForce(-fx * rr * Math.sign(vF), 0, -fz * rr * Math.sign(vF), rx, ry, rz);
+      addForce(-fx * rr * Math.sign(vF), -fy * rr * Math.sign(vF), -fz * rr * Math.sign(vF), rx, ry, rz);
     }
     this.grounded = grounded;
 
@@ -449,7 +458,8 @@ class Vehicle {
       }
     }
     // world bounds
-    const lim = world.half + 130;
+    // the drivable area now reaches past the ring motorway, not just the city
+    const lim = world.ring ? world.ring.R + 240 : world.half + 130;
     for (const ax of [0, 2]) {
       if (this.pos[ax] < -lim) { this.pos[ax] = -lim; this.vel[ax] = Math.abs(this.vel[ax]) * 0.3; hit = Math.max(hit, 0.3); }
       if (this.pos[ax] > lim) { this.pos[ax] = lim; this.vel[ax] = -Math.abs(this.vel[ax]) * 0.3; hit = Math.max(hit, 0.3); }

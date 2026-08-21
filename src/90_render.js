@@ -375,6 +375,16 @@ const R = {
   drawWorld(prog, cullSphere, isShadow) {
     let drawn = 0;
     const pl = this.planes;
+    if (World.terrain) {
+      for (const t of World.terrain) {
+        if (cullSphere) {
+          const dx = Math.max(0, Math.abs(cullSphere.x - t.cx) - t.ex);
+          const dz = Math.max(0, Math.abs(cullSphere.z - t.cz) - t.ez);
+          if (dx * dx + dz * dz > cullSphere.r * cullSphere.r) continue;
+        } else if (!aabbInFrustum(pl, t.cx, t.cy, t.cz, t.ex, t.ey, t.ez)) continue;
+        t.batch.draw(); drawn++;
+      }
+    }
     for (const ch of World.chunks) {
       if (!ch.batches) continue;
       if (cullSphere) {

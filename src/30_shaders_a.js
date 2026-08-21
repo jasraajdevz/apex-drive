@@ -425,6 +425,14 @@ void matAsphalt(inout Surf s, vec3 wp, vec3 lp, vec3 scale, float seed){
     paint = max(centre, white);
     pc = mix(vec3(0.50,0.49,0.46), vec3(0.46,0.33,0.045), centre>white?1.0:0.0);
     paint *= wear;
+  } else if(seed > 3.5){
+    // --- motorway carriageway: solid edges, one dashed lane divider ---
+    float edgeL = smoothstep(0.12,0.07, abs(ax + (scale.x*0.5 - 0.55)));
+    float edgeR = smoothstep(0.12,0.07, abs(ax - (scale.x*0.5 - 0.55)));
+    float dash  = step(fract(az/11.0), 0.44);
+    float div   = smoothstep(0.10,0.055, abs(ax))*dash;
+    paint = max(max(edgeL, edgeR), div)*(0.66+0.34*vnoise(wp.xz*9.0));
+    pc = vec3(0.52,0.51,0.48);
   } else if(seed > 1.5){
     // --- intersection: zebra crossings on all four approaches ---
     float cw = 0.0;

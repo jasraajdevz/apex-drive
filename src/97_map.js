@@ -104,7 +104,7 @@ const MapView = {
     this.fit();
     this.centre();
     // open showing roughly 900 m across, like a satnav rather than a world map
-    this.zoom = clamp(Math.min(this.cv.width, this.cv.height) / 900, this.minZoom, this.maxZoom);
+    this.zoom = clamp(Math.min(this.cv.width, this.cv.height) / 1400, this.minZoom, this.maxZoom);
     $('mapscreen').classList.remove('hidden');
     this.draw();
   },
@@ -228,6 +228,33 @@ const MapView = {
       }
       c.stroke();
       c.setLineDash([]);
+    }
+
+    // ring motorway, slip roads and roundabouts
+    if (World.ring) {
+      const RR = World.ring.R, GAP = World.ring.GAP, CW = World.ring.CW;
+      c.strokeStyle = '#1d2a38';
+      c.lineWidth = Math.max(2, (GAP + CW * 2 + 6) * z);
+      c.beginPath();
+      const o = this.worldToScreen(0, 0);
+      c.arc(o[0], o[1], RR * z, 0, TAU);
+      c.stroke();
+      c.strokeStyle = 'rgba(150,190,225,.30)';
+      c.lineWidth = Math.max(1, 1.4 * this.dpr);
+      c.beginPath(); c.arc(o[0], o[1], RR * z, 0, TAU); c.stroke();
+      for (const rb of (World.roundabouts || [])) {
+        const q = this.worldToScreen(rb.x, rb.z);
+        c.strokeStyle = '#1d2a38'; c.lineWidth = Math.max(2, 9 * z);
+        c.beginPath(); c.arc(q[0], q[1], (rb.r - 4) * z, 0, TAU); c.stroke();
+        c.fillStyle = '#24402c';
+        c.beginPath(); c.arc(q[0], q[1], (rb.r - 9) * z, 0, TAU); c.fill();
+        // the slip road running in to the city
+        const a = Math.atan2(rb.z, rb.x);
+        const p0 = this.worldToScreen(Math.cos(a) * (World.half + 10), Math.sin(a) * (World.half + 10));
+        const p1 = this.worldToScreen(Math.cos(a) * (RR - 12), Math.sin(a) * (RR - 12));
+        c.strokeStyle = '#1d2a38'; c.lineWidth = Math.max(2, 15 * z);
+        c.beginPath(); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); c.stroke();
+      }
     }
 
     // traffic

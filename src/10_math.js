@@ -137,6 +137,25 @@ const M4 = {
     o[12] = px; o[13] = py; o[14] = pz; o[15] = 1;
     return o;
   },
+  /* TRS whose up axis is tilted to match a ground gradient (dh/dx, dh/dz) */
+  trsTilt(o, px, py, pz, ry, gx, gz, sx, sy, sz) {
+    let ux = -gx, uy = 1, uz = -gz;
+    const ul = Math.hypot(ux, uy, uz) || 1;
+    ux /= ul; uy /= ul; uz /= ul;
+    const c = Math.cos(ry), sn = Math.sin(ry);
+    // desired forward before orthogonalising
+    let fx = sn, fy = 0, fz = c;
+    const d = fx * ux + fy * uy + fz * uz;
+    fx -= ux * d; fy -= uy * d; fz -= uz * d;
+    const fl = Math.hypot(fx, fy, fz) || 1;
+    fx /= fl; fy /= fl; fz /= fl;
+    const rx = uy * fz - uz * fy, rry = uz * fx - ux * fz, rz = ux * fy - uy * fx;
+    o[0] = rx * sx; o[1] = rry * sx; o[2] = rz * sx; o[3] = 0;
+    o[4] = ux * sy; o[5] = uy * sy; o[6] = uz * sy; o[7] = 0;
+    o[8] = fx * sz; o[9] = fy * sz; o[10] = fz * sz; o[11] = 0;
+    o[12] = px; o[13] = py; o[14] = pz; o[15] = 1;
+    return o;
+  },
   xform(o, m, v) {
     const x = v[0], y = v[1], z = v[2];
     o[0] = m[0] * x + m[4] * y + m[8] * z + m[12];

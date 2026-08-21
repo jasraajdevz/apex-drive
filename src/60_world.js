@@ -33,7 +33,13 @@ World.isOnBlock = function (x, z) {
   const m = (C - B) * .5;   // = ROAD/2 + ... offset from cell edge to block edge
   return lx > m && lx < C - m && lz > m && lz < C - m;
 };
-World.groundY = function (x, z) { return this.isOnBlock(x, z) ? this.CURB : 0; };
+World.groundY = function (x, z) {
+  return Terrain.h(x, z) + (this.isOnBlock(x, z) ? this.CURB : 0);
+};
+World.groundNormal = function (x, z, out) {
+  Terrain.normal(x, z, out);
+  return out;
+};
 
 /* --------- collider grid --------- */
 World.addCollider = function (x0, z0, x1, z1, y) {
@@ -83,23 +89,39 @@ World.build = function (opts) {
   this.chunks.length = 0; this.trees.length = 0; this.blockInfo.length = 0;
   this._lotCars = []; this._forceChunk = null; this.signals.length = 0;
 
+  Terrain.build({ N, CELL: C, half, seed: opts.seed || 20260817, ringR: half + 210 });
   const rnd = mulberry32(opts.seed || 20260817);
-  const CH = this.chunkCells, nch = Math.ceil(N / CH);
+  // the chunk grid has to reach past the city to cover the ring motorway,
+  // otherwise everything out there lands in an edge chunk and gets culled wrong
+  const CH = this.chunkCells;
+  const CHUNK = C * CH;
+  const span = this.chunkSpan = Math.ceil((half + 340) / CHUNK) * CHUNK;
+  const nch = Math.round((span * 2) / CHUNK);
+  this.nch = nch;
   const chunkAt = (x, z) => {
-    let i = clamp(Math.floor((x + half) / (C * CH)), 0, nch - 1);
-    let j = clamp(Math.floor((z + half) / (C * CH)), 0, nch - 1);
+    const i = clamp(Math.floor((x + span) / CHUNK), 0, nch - 1);
+    const j = clamp(Math.floor((z + span) / CHUNK), 0, nch - 1);
     return this.chunks[j * nch + i];
   };
   for (let j = 0; j < nch; j++) for (let i = 0; i < nch; i++) {
-    this.chunks.push(Chunk(i, j, -half + i * C * CH, -half + j * C * CH,
-      -half + Math.min((i + 1) * C * CH, this.size), -half + Math.min((j + 1) * C * CH, this.size)));
+    this.chunks.push(Chunk(i, j, -span + i * CHUNK, -span + j * CHUNK,
+      -span + (i + 1) * CHUNK, -span + (j + 1) * CHUNK));
   }
 
   const tmpM = M4.n();
-  /* push a scaled/rotated box */
+  const tmpG = [0, 0];
+  /* push a scaled/rotated box. y is measured from the ground at that point,
+     and anything flat and wide enough to be part of the road surface is laid
+     down along the local slope instead of hovering over it. */
   function box(x, y, z, sx, sy, sz, ry, col, rough, metal, emis, mat, seed) {
     const ch = World._forceChunk || chunkAt(x, z);
-    M4.trs(tmpM, x, y, z, ry || 0, sx, sy, sz);
+    const gy = Terrain.h(x, z);
+    if (sy <= 0.36 && Math.max(sx, sz) >= 1.4 && y < 1.1) {
+      Terrain.grad(x, z, tmpG);
+      M4.trsTilt(tmpM, x, y + gy, z, ry || 0, tmpG[0], tmpG[1], sx, sy, sz);
+    } else {
+      M4.trs(tmpM, x, y + gy, z, ry || 0, sx, sy, sz);
+    }
     const a = ch.tmp.box;
     for (let k = 0; k < 16; k++) a.push(tmpM[k]);
     a.push(col[0], col[1], col[2], rough, metal, emis, mat, seed === undefined ? 0 : seed);
@@ -107,7 +129,7 @@ World.build = function (opts) {
   }
   function cyl(x, y, z, r, h, col, rough, metal, emis, mat, seed, ry) {
     const ch = World._forceChunk || chunkAt(x, z);
-    M4.trs(tmpM, x, y, z, ry || 0, r * 2, h, r * 2);
+    M4.trs(tmpM, x, y + Terrain.h(x, z), z, ry || 0, r * 2, h, r * 2);
     const a = ch.tmp.cyl;
     for (let k = 0; k < 16; k++) a.push(tmpM[k]);
     a.push(col[0], col[1], col[2], rough, metal, emis, mat, seed === undefined ? 0 : seed);
@@ -115,7 +137,7 @@ World.build = function (opts) {
   }
   function sph(x, y, z, rx, ry_, rz, col, rough, metal, emis, mat, seed) {
     const ch = World._forceChunk || chunkAt(x, z);
-    M4.trs(tmpM, x, y, z, 0, rx * 2, ry_ * 2, rz * 2);
+    M4.trs(tmpM, x, y + Terrain.h(x, z), z, 0, rx * 2, ry_ * 2, rz * 2);
     const a = ch.tmp.sph;
     for (let k = 0; k < 16; k++) a.push(tmpM[k]);
     a.push(col[0], col[1], col[2], rough, metal, emis, mat, seed === undefined ? 0 : seed);
@@ -174,6 +196,9 @@ World.build = function (opts) {
   /* ---------------- street furniture ---------------- */
   this._streetFurniture(rnd);
   this._streetDetail(rnd);
+
+  /* ---------------- motorway ring, connectors, roundabouts ---------------- */
+  this._highway(rnd);
 
   /* ---------------- surrounding terrain + skyline ---------------- */
   const farCh = Chunk(-1, -1, -4000, -4000, 4000, 4000);
@@ -705,21 +730,132 @@ World.signalState = function (i, j, axis, t) {
   return axis === 1 ? nsGreen : ewGreen;
 };
 
+/* ---------- the ring motorway, its slip roads and roundabouts ---------- */
+World._highway = function (rnd) {
+  const R = Terrain.ringR;
+  const SEG = 168;
+  const CW = 9.6;          // one carriageway, two lanes
+  const GAP = 4.2;         // central reservation
+  const road = [.055, .057, .062];
+  const barrier = [.42, .43, .45];
+  this.ring = { R, CW, GAP, seg: SEG };
+
+  for (let k = 0; k < SEG; k++) {
+    const a0 = k / SEG * TAU, a1 = (k + 1) / SEG * TAU;
+    for (const side of [-1, 1]) {
+      const rr = R + side * (GAP * .5 + CW * .5);
+      const x0 = Math.cos(a0) * rr, z0 = Math.sin(a0) * rr;
+      const x1 = Math.cos(a1) * rr, z1 = Math.sin(a1) * rr;
+      const cx = (x0 + x1) * .5, cz = (z0 + z1) * .5;
+      const len = Math.hypot(x1 - x0, z1 - z0) * 1.08;
+      const yaw = Math.atan2(x1 - x0, z1 - z0);
+      this._box(cx, .02, cz, CW, .05, len, yaw, road, .9, 0, 0, M_ASPHALT, 4);
+      // hard shoulder
+      this._box(cx + Math.cos((a0 + a1) * .5) * side * (CW * .5 + 1.4), .015,
+        cz + Math.sin((a0 + a1) * .5) * side * (CW * .5 + 1.4),
+        2.6, .04, len, yaw, [.075, .077, .08], .92, 0, 0, M_ASPHALT, 0);
+      // armco on the outside
+      const bx = Math.cos((a0 + a1) * .5) * (rr + side * (CW * .5 + 2.9));
+      const bz = Math.sin((a0 + a1) * .5) * (rr + side * (CW * .5 + 2.9));
+      this._box(bx, .62, bz, .10, .34, len, yaw, barrier, .45, .85, 0, M_METAL, 0);
+      if (k % 3 === 0) this._box(bx, .38, bz, .13, .78, .13, yaw, [.28, .29, .30], .6, .7, 0, M_METAL, 0);
+    }
+    // central reservation with a double barrier
+    const am = (a0 + a1) * .5;
+    const mx = Math.cos(am) * R, mz = Math.sin(am) * R;
+    const mlen = TAU * R / SEG * 1.08;
+    const myaw = am + PI * .5;
+    this._box(mx, .10, mz, GAP, .20, mlen, myaw, [.30, .31, .29], .9, 0, 0, M_CONCRETE, 0);
+    for (const o of [-1, 1])
+      this._box(Math.cos(am) * (R + o * GAP * .34), .58, Math.sin(am) * (R + o * GAP * .34),
+        .10, .30, mlen, myaw, barrier, .45, .85, 0, M_METAL, 0);
+
+    // lighting gantry
+    if (k % 12 === 0) {
+      const gx = Math.cos(am) * R, gz = Math.sin(am) * R;
+      this._cyl(gx, 5.0, gz, .17, 10.0, [.30, .31, .33], .5, .8, 0, M_METAL, 0);
+      for (const o of [-1, 1]) {
+        const ax2 = Math.cos(am) * (R + o * 9), az2 = Math.sin(am) * (R + o * 9);
+        this._box((gx + ax2) * .5, 9.7, (gz + az2) * .5, 9.4, .18, .18, am + PI * .5, [.30, .31, .33], .5, .8, 0, M_METAL, 0);
+        this._box(ax2, 9.4, az2, 1.1, .26, .5, am + PI * .5, [1, .95, .85], .3, 0, 3.2, M_EMISSIVE, 1);
+        this.lights.push({ p: [ax2, Terrain.h(ax2, az2) + 9.2, az2], col: [1, .92, .78], rad: 34, kind: 'street' });
+      }
+    }
+    // distance markers
+    if (k % 14 === 0) {
+      const sx2 = Math.cos(am) * (R + CW + GAP), sz2 = Math.sin(am) * (R + CW + GAP);
+      this._cyl(sx2, 1.3, sz2, .07, 2.6, [.5, .5, .52], .5, .7, 0, M_METAL, 0);
+      this._box(sx2, 2.7, sz2, 1.3, .8, .10, am + PI * .5, [.12, .35, .18], .5, 0, .35, M_EMISSIVE, 2);
+    }
+  }
+
+  /* four slip roads joining the city to the ring, each with a roundabout */
+  const dirs = [0, PI * .5, PI, PI * 1.5];
+  this.roundabouts = [];
+  for (const a of dirs) {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const rIn = this.half + 12, rOut = R - (GAP * .5 + CW + 4);
+    const rRnd = (rIn + rOut) * .5;
+    const RR = 26;                          // roundabout outer radius
+    // connector, split either side of the roundabout
+    const stretch = (r0, r1) => {
+      const n = Math.max(2, Math.round((r1 - r0) / 26));
+      for (let k = 0; k < n; k++) {
+        const t0 = r0 + (r1 - r0) * k / n, t1 = r0 + (r1 - r0) * (k + 1) / n;
+        const x0 = ca * t0, z0 = sa * t0, x1 = ca * t1, z1 = sa * t1;
+        const len = Math.hypot(x1 - x0, z1 - z0) * 1.08;
+        this._box((x0 + x1) * .5, .02, (z0 + z1) * .5, 15, .05, len,
+          Math.atan2(x1 - x0, z1 - z0), road, .9, 0, 0, M_ASPHALT, 1);
+      }
+    };
+    stretch(rIn, rRnd - RR);
+    stretch(rRnd + RR, rOut);
+
+    // the roundabout itself
+    const cx = ca * rRnd, cz = sa * rRnd;
+    const RING_SEG = 40, LANE = 8.5;
+    for (let k = 0; k < RING_SEG; k++) {
+      const b0 = k / RING_SEG * TAU, b1 = (k + 1) / RING_SEG * TAU;
+      const rr = RR - LANE * .5;
+      const x0 = cx + Math.cos(b0) * rr, z0 = cz + Math.sin(b0) * rr;
+      const x1 = cx + Math.cos(b1) * rr, z1 = cz + Math.sin(b1) * rr;
+      const len = Math.hypot(x1 - x0, z1 - z0) * 1.12;
+      this._box((x0 + x1) * .5, .02, (z0 + z1) * .5, LANE, .05, len,
+        Math.atan2(x1 - x0, z1 - z0), road, .9, 0, 0, M_ASPHALT, 0);
+      // kerb around the island
+      const bm = (b0 + b1) * .5, ir = RR - LANE;
+      this._box(cx + Math.cos(bm) * ir, .14, cz + Math.sin(bm) * ir, 1.0, .30, len * 1.1,
+        Math.atan2(Math.cos(b1) - Math.cos(b0), Math.sin(b1) - Math.sin(b0)) + PI * .5,
+        [.46, .455, .44], .8, 0, 0, M_CONCRETE, 0);
+    }
+    // planted island with a monument
+    this._cyl(cx, .22, cz, RR - LANE - .5, .44, [.10, .21, .07], .95, 0, 0, M_GRASS, 0);
+    this._cyl(cx, 1.1, cz, 2.2, 2.2, [.48, .47, .45], .85, 0, 0, M_CONCRETE, 0);
+    this._cyl(cx, 4.4, cz, .8, 6.6, [.55, .54, .50], .6, .25, 0, M_CONCRETE, 0);
+    this._sph(cx, 8.2, cz, 1.1, 1.1, 1.1, [.85, .70, .32], .2, 1, .5, M_METAL, 0);
+    for (let k = 0; k < 7; k++) {
+      const b = k / 7 * TAU;
+      this._tree(cx + Math.cos(b) * (RR - LANE - 4), cz + Math.sin(b) * (RR - LANE - 4), rnd, false);
+    }
+    this.addCollider(cx - (RR - LANE), cz - (RR - LANE), cx + (RR - LANE), cz + (RR - LANE), 500);
+    this.roundabouts.push({ x: cx, z: cz, r: RR });
+    this.lights.push({ p: [cx, Terrain.h(cx, cz) + 7, cz], col: [1, .9, .7], rad: 40, kind: 'sign' });
+  }
+};
+
 /* ---------- outskirts: ground plane, distant skyline, hills ---------- */
 World._outskirts = function (rnd) {
   const half = this.half;
   const far = half + 1400;
   // ground
   this._box(0, -.06, 0, far * 2, .1, far * 2, 0, [.085, .095, .075], .95, 0, 0, M_GRASS, 0);
-  // ring road / apron just outside the grid
-  for (const s of [-1, 1]) {
-    this._box(s * (half + 24), -.01, 0, 40, .02, half * 2 + 100, 0, [.06, .062, .066], .9, 0, 0, M_ASPHALT, 0);
-    this._box(0, -.01, s * (half + 24), half * 2 + 100, .02, 40, 0, [.06, .062, .066], .9, 0, 0, M_ASPHALT, 0);
-  }
+
   // distant skyline
   for (let k = 0; k < 260; k++) {
     const a = rnd() * TAU;
     const d = half + 160 + rnd() * 950;
+    // keep the skyline clear of the motorway corridor, it was being built on top of it
+    if (Math.abs(d - Terrain.ringR) < 110) continue;
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     const w = 16 + rnd() * 46, h = 30 + rnd() * rnd() * 220;
     const g = .10 + rnd() * .10;
@@ -731,6 +867,56 @@ World._outskirts = function (rnd) {
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     const r = 300 + rnd() * 700, h = 120 + rnd() * 420;
     this._sph(x, -h * .25, z, r, h, r * (.7 + rnd() * .6), [.055, .07, .085], .98, 0, 0, M_FOLIAGE, 0);
+  }
+};
+
+/* ---------- the height field, as drawable tiles ---------- */
+World.buildTerrain = function (meshes) {
+  if (this.terrain) for (const t of this.terrain) { /* meshes are kept, tiles rebuilt rarely */ }
+  this.terrain = [];
+  const TILE = 304, RES = 16;   // 304 = 4 city cells, so verts land on cell corners
+  const reach = this.half + 1500;
+  const n = Math.ceil((reach * 2) / TILE);
+  const start = -Math.ceil(n / 2) * TILE;
+  for (let tj = 0; tj < n; tj++) {
+    for (let ti = 0; ti < n; ti++) {
+      const x0 = start + ti * TILE, z0 = start + tj * TILE;
+      const g = new Geo();
+      let ylo = 1e9, yhi = -1e9;
+      for (let j = 0; j <= RES; j++) {
+        for (let i = 0; i <= RES; i++) {
+          const x = x0 + TILE * i / RES, z = z0 + TILE * j / RES;
+          const y = Terrain.h(x, z);
+          if (y < ylo) ylo = y; if (y > yhi) yhi = y;
+          const d = 2.0;
+          const hx = Terrain.h(x + d, z) - Terrain.h(x - d, z);
+          const hz = Terrain.h(x, z + d) - Terrain.h(x, z - d);
+          let nx = -hx, ny = 2 * d, nz = -hz;
+          const l = Math.hypot(nx, ny, nz) || 1;
+          g.v(x, y, z, nx / l, ny / l, nz / l, x * 0.05, z * 0.05);
+        }
+      }
+      // the city footprint is completely paved by roads and block platforms,
+      // so the ground mesh gets a hole cut in it rather than fighting them
+      const e = this.half;
+      for (let j = 0; j < RES; j++) for (let i = 0; i < RES; i++) {
+        const cxq = x0 + TILE * (i + 0.5) / RES, czq = z0 + TILE * (j + 0.5) / RES;
+        if (cxq > -e && cxq < e && czq > -e && czq < e) continue;
+        const a = j * (RES + 1) + i;
+        g.quad(a, a + RES + 1, a + RES + 2, a + 1);
+      }
+      if (!g.i.length) continue;
+      const mesh = buildMesh(g.done());
+      const b = new Batch(mesh, 1, false);
+      const m = M4.n();
+      b.push(m, .10, .13, .075, .95, 0, 0, M_GRASS, 0);
+      b.upload();
+      this.terrain.push({
+        batch: b, cx: x0 + TILE / 2, cz: z0 + TILE / 2,
+        ex: TILE / 2 + 4, ez: TILE / 2 + 4,
+        cy: (ylo + yhi) / 2, ey: (yhi - ylo) / 2 + 6
+      });
+    }
   }
 };
 

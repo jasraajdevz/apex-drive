@@ -900,6 +900,25 @@ const M4 = {
     o[12] = px; o[13] = py; o[14] = pz; o[15] = 1;
     return o;
   },
+  /* TRS whose up axis is tilted to match a ground gradient (dh/dx, dh/dz) */
+  trsTilt(o, px, py, pz, ry, gx, gz, sx, sy, sz) {
+    let ux = -gx, uy = 1, uz = -gz;
+    const ul = Math.hypot(ux, uy, uz) || 1;
+    ux /= ul; uy /= ul; uz /= ul;
+    const c = Math.cos(ry), sn = Math.sin(ry);
+    // desired forward before orthogonalising
+    let fx = sn, fy = 0, fz = c;
+    const d = fx * ux + fy * uy + fz * uz;
+    fx -= ux * d; fy -= uy * d; fz -= uz * d;
+    const fl = Math.hypot(fx, fy, fz) || 1;
+    fx /= fl; fy /= fl; fz /= fl;
+    const rx = uy * fz - uz * fy, rry = uz * fx - ux * fz, rz = ux * fy - uy * fx;
+    o[0] = rx * sx; o[1] = rry * sx; o[2] = rz * sx; o[3] = 0;
+    o[4] = ux * sy; o[5] = uy * sy; o[6] = uz * sy; o[7] = 0;
+    o[8] = fx * sz; o[9] = fy * sz; o[10] = fz * sz; o[11] = 0;
+    o[12] = px; o[13] = py; o[14] = pz; o[15] = 1;
+    return o;
+  },
   xform(o, m, v) {
     const x = v[0], y = v[1], z = v[2];
     o[0] = m[0] * x + m[4] * y + m[8] * z + m[12];
@@ -1829,6 +1848,14 @@ void matAsphalt(inout Surf s, vec3 wp, vec3 lp, vec3 scale, float seed){
     paint = max(centre, white);
     pc = mix(vec3(0.50,0.49,0.46), vec3(0.46,0.33,0.045), centre>white?1.0:0.0);
     paint *= wear;
+  } else if(seed > 3.5){
+    // --- motorway carriageway: solid edges, one dashed lane divider ---
+    float edgeL = smoothstep(0.12,0.07, abs(ax + (scale.x*0.5 - 0.55)));
+    float edgeR = smoothstep(0.12,0.07, abs(ax - (scale.x*0.5 - 0.55)));
+    float dash  = step(fract(az/11.0), 0.44);
+    float div   = smoothstep(0.10,0.055, abs(ax))*dash;
+    paint = max(max(edgeL, edgeR), div)*(0.66+0.34*vnoise(wp.xz*9.0));
+    pc = vec3(0.52,0.51,0.48);
   } else if(seed > 1.5){
     // --- intersection: zebra crossings on all four approaches ---
     float cw = 0.0;
@@ -3964,6 +3991,161 @@ function buildTrafficCar(seed) {
 
 </script>
 <script>
+/* ===== 58_terrain.js ===== */
+'use strict';
+/* ============================================================
+   Apex Drive — terrain
+
+   The city sits on a height field sampled at every road intersection
+   and bilinearly interpolated in between. That choice matters: along a
+   cell edge a bilinear patch is exactly linear, so a road segment from
+   one junction to the next is a perfect plane and can still be drawn as
+   a single pitched box. Blocks get the bilinear patch, which meets the
+   roads exactly at the kerb, so the kerb height never drifts.
+
+   Outside the grid the height comes straight from fbm, with the ring
+   road flattened into a corridor so the highway has a sane grade.
+   ============================================================ */
+
+const Terrain = {
+  N: 0, CELL: 76, half: 0,
+  nodeH: null,          // (N+1) x (N+1) heights at the intersections
+  amp: 34,              // metres from the lowest valley to the highest ridge
+  ringR: 0, ringW: 30,
+  enabled: true,
+
+  build(opts) {
+    const N = this.N = opts.N, C = this.CELL = opts.CELL;
+    this.half = opts.half;
+    this.ringR = opts.ringR || (this.half + 210);
+    const rnd = mulberry32((opts.seed || 1) ^ 0x5f3a);
+    const W = N + 1;
+    this.nodeH = new Float32Array(W * W);
+
+    // low-frequency ridges plus a gentler second octave; wavelengths are long
+    // relative to a block so the grade between neighbouring junctions stays sane
+    const ox = rnd() * 900, oz = rnd() * 900;
+    for (let j = 0; j <= N; j++) {
+      for (let i = 0; i <= N; i++) {
+        const x = i * C - this.half, z = j * C - this.half;
+        let h = 0;
+        h += fbm((x + ox) * 0.00085, (z + oz) * 0.00085, 3) * 1.0;
+        h += fbm((x + ox) * 0.0026, (z + oz) * 0.0026, 3) * 0.34;
+        h = (h / 1.34) * 2 - 1;
+        // ease the very centre flat so downtown is not built on a hillside
+        const d = Math.hypot(x, z) / this.half;
+        h *= smoothstep(0.10, 0.62, d) * 0.85 + 0.15;
+        this.nodeH[j * W + i] = h * this.amp;
+      }
+    }
+
+    // clamp the grade between neighbours so no street becomes a ski jump
+    const maxStep = C * 0.055;
+    for (let pass = 0; pass < 6; pass++) {
+      for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+        const id = j * W + i;
+        for (const [di, dj] of [[1, 0], [0, 1]]) {
+          const ni = i + di, nj = j + dj;
+          if (ni > N || nj > N) continue;
+          const nid = nj * W + ni;
+          const d = this.nodeH[nid] - this.nodeH[id];
+          if (Math.abs(d) > maxStep) {
+            const fix = (Math.abs(d) - maxStep) * 0.5 * Math.sign(d);
+            this.nodeH[id] += fix; this.nodeH[nid] -= fix;
+          }
+        }
+      }
+    }
+    let lo = 1e9;
+    for (let k = 0; k < this.nodeH.length; k++) lo = Math.min(lo, this.nodeH[k]);
+    for (let k = 0; k < this.nodeH.length; k++) this.nodeH[k] -= lo;   // keep it all above zero
+    return this;
+  },
+
+  nodeAt(i, j) {
+    const N = this.N, W = N + 1;
+    return this.nodeH[clamp(j, 0, N) * W + clamp(i, 0, N)];
+  },
+
+  /* height inside the city grid — bilinear over the cell */
+  cityH(x, z) {
+    const C = this.CELL, h = this.half;
+    const fx = (x + h) / C, fz = (z + h) / C;
+    const i = Math.floor(fx), j = Math.floor(fz);
+    const tx = fx - i, tz = fz - j;
+    const h00 = this.nodeAt(i, j), h10 = this.nodeAt(i + 1, j);
+    const h01 = this.nodeAt(i, j + 1), h11 = this.nodeAt(i + 1, j + 1);
+    return lerp(lerp(h00, h10, tx), lerp(h01, h11, tx), tz);
+  },
+
+  /* open country outside the grid, with the ring corridor levelled off */
+  wildH(x, z) {
+    const d = Math.hypot(x, z);
+    const edge = this.half;
+    let h = fbm(x * 0.00062 + 91, z * 0.00062 - 37, 4);
+    h += fbm(x * 0.0021 + 5, z * 0.0021 + 11, 3) * 0.30;
+    h = (h / 1.30) * 2 - 1;
+    // mountains rise well beyond the ring
+    const far = smoothstep(this.ringR + 120, this.ringR + 1500, d);
+    let out = h * (this.amp * 1.8) + far * (h * 0.5 + 0.55) * 420;
+
+    // flatten a corridor for the ring highway so it rolls but never climbs a cliff
+    const ringBand = 1 - smoothstep(this.ringW * 0.9, this.ringW * 3.2, Math.abs(d - this.ringR));
+    if (ringBand > 0.001) {
+      const ringH = this.ringHeight(Math.atan2(z, x));
+      out = lerp(out, ringH, ringBand);
+    }
+    return out;
+  },
+
+  /* the ring's own gentle profile, a function of angle only */
+  ringHeight(a) {
+    return Math.sin(a * 2 + 0.7) * 9 + Math.sin(a * 3 - 1.9) * 5 + this.amp * 0.45;
+  },
+
+  h(x, z) {
+    if (!this.enabled) return 0;
+    const e = this.half;
+    // inside the grid the height must be exactly the bilinear patch, or the
+    // roads laid on it stop matching the ground mesh at the city edge
+    if (x > -e && x < e && z > -e && z < e) return this.cityH(x, z);
+    const m = Math.max(Math.abs(x), Math.abs(z));
+    const t = smoothstep(e, e + 150, m);
+    return lerp(this.cityH(clamp(x, -e, e), clamp(z, -e, e)), this.wildH(x, z), t);
+  },
+
+  /* central-difference normal; the tyre model needs the contact plane */
+  normal(x, z, out) {
+    const d = 1.2;
+    const hx = this.h(x + d, z) - this.h(x - d, z);
+    const hz = this.h(x, z + d) - this.h(x, z - d);
+    const nx = -hx, ny = 2 * d, nz = -hz;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    out[0] = nx / l; out[1] = ny / l; out[2] = nz / l;
+    return out;
+  },
+
+  /* dh/dx and dh/dz, used to lay flat slabs down on the slope */
+  grad(x, z, out) {
+    const d = 1.5;
+    out[0] = (this.h(x + d, z) - this.h(x - d, z)) / (2 * d);
+    out[1] = (this.h(x, z + d) - this.h(x, z - d)) / (2 * d);
+    return out;
+  },
+
+  /* pitch of a box laid along a direction, for road segments */
+  pitchAlong(x0, z0, x1, z1) {
+    const dy = this.h(x1, z1) - this.h(x0, z0);
+    const len = Math.hypot(x1 - x0, z1 - z0) || 1;
+    return Math.atan2(dy, len);
+  }
+};
+
+/* fbm with an octave count, kept separate from the shader-side helper */
+function fbmT(x, y, oct) { return fbm(x, y, oct); }
+
+</script>
+<script>
 /* ===== 60_world.js ===== */
 'use strict';
 /* ============================================================
@@ -4000,7 +4182,13 @@ World.isOnBlock = function (x, z) {
   const m = (C - B) * .5;   // = ROAD/2 + ... offset from cell edge to block edge
   return lx > m && lx < C - m && lz > m && lz < C - m;
 };
-World.groundY = function (x, z) { return this.isOnBlock(x, z) ? this.CURB : 0; };
+World.groundY = function (x, z) {
+  return Terrain.h(x, z) + (this.isOnBlock(x, z) ? this.CURB : 0);
+};
+World.groundNormal = function (x, z, out) {
+  Terrain.normal(x, z, out);
+  return out;
+};
 
 /* --------- collider grid --------- */
 World.addCollider = function (x0, z0, x1, z1, y) {
@@ -4050,23 +4238,39 @@ World.build = function (opts) {
   this.chunks.length = 0; this.trees.length = 0; this.blockInfo.length = 0;
   this._lotCars = []; this._forceChunk = null; this.signals.length = 0;
 
+  Terrain.build({ N, CELL: C, half, seed: opts.seed || 20260817, ringR: half + 210 });
   const rnd = mulberry32(opts.seed || 20260817);
-  const CH = this.chunkCells, nch = Math.ceil(N / CH);
+  // the chunk grid has to reach past the city to cover the ring motorway,
+  // otherwise everything out there lands in an edge chunk and gets culled wrong
+  const CH = this.chunkCells;
+  const CHUNK = C * CH;
+  const span = this.chunkSpan = Math.ceil((half + 340) / CHUNK) * CHUNK;
+  const nch = Math.round((span * 2) / CHUNK);
+  this.nch = nch;
   const chunkAt = (x, z) => {
-    let i = clamp(Math.floor((x + half) / (C * CH)), 0, nch - 1);
-    let j = clamp(Math.floor((z + half) / (C * CH)), 0, nch - 1);
+    const i = clamp(Math.floor((x + span) / CHUNK), 0, nch - 1);
+    const j = clamp(Math.floor((z + span) / CHUNK), 0, nch - 1);
     return this.chunks[j * nch + i];
   };
   for (let j = 0; j < nch; j++) for (let i = 0; i < nch; i++) {
-    this.chunks.push(Chunk(i, j, -half + i * C * CH, -half + j * C * CH,
-      -half + Math.min((i + 1) * C * CH, this.size), -half + Math.min((j + 1) * C * CH, this.size)));
+    this.chunks.push(Chunk(i, j, -span + i * CHUNK, -span + j * CHUNK,
+      -span + (i + 1) * CHUNK, -span + (j + 1) * CHUNK));
   }
 
   const tmpM = M4.n();
-  /* push a scaled/rotated box */
+  const tmpG = [0, 0];
+  /* push a scaled/rotated box. y is measured from the ground at that point,
+     and anything flat and wide enough to be part of the road surface is laid
+     down along the local slope instead of hovering over it. */
   function box(x, y, z, sx, sy, sz, ry, col, rough, metal, emis, mat, seed) {
     const ch = World._forceChunk || chunkAt(x, z);
-    M4.trs(tmpM, x, y, z, ry || 0, sx, sy, sz);
+    const gy = Terrain.h(x, z);
+    if (sy <= 0.36 && Math.max(sx, sz) >= 1.4 && y < 1.1) {
+      Terrain.grad(x, z, tmpG);
+      M4.trsTilt(tmpM, x, y + gy, z, ry || 0, tmpG[0], tmpG[1], sx, sy, sz);
+    } else {
+      M4.trs(tmpM, x, y + gy, z, ry || 0, sx, sy, sz);
+    }
     const a = ch.tmp.box;
     for (let k = 0; k < 16; k++) a.push(tmpM[k]);
     a.push(col[0], col[1], col[2], rough, metal, emis, mat, seed === undefined ? 0 : seed);
@@ -4074,7 +4278,7 @@ World.build = function (opts) {
   }
   function cyl(x, y, z, r, h, col, rough, metal, emis, mat, seed, ry) {
     const ch = World._forceChunk || chunkAt(x, z);
-    M4.trs(tmpM, x, y, z, ry || 0, r * 2, h, r * 2);
+    M4.trs(tmpM, x, y + Terrain.h(x, z), z, ry || 0, r * 2, h, r * 2);
     const a = ch.tmp.cyl;
     for (let k = 0; k < 16; k++) a.push(tmpM[k]);
     a.push(col[0], col[1], col[2], rough, metal, emis, mat, seed === undefined ? 0 : seed);
@@ -4082,7 +4286,7 @@ World.build = function (opts) {
   }
   function sph(x, y, z, rx, ry_, rz, col, rough, metal, emis, mat, seed) {
     const ch = World._forceChunk || chunkAt(x, z);
-    M4.trs(tmpM, x, y, z, 0, rx * 2, ry_ * 2, rz * 2);
+    M4.trs(tmpM, x, y + Terrain.h(x, z), z, 0, rx * 2, ry_ * 2, rz * 2);
     const a = ch.tmp.sph;
     for (let k = 0; k < 16; k++) a.push(tmpM[k]);
     a.push(col[0], col[1], col[2], rough, metal, emis, mat, seed === undefined ? 0 : seed);
@@ -4141,6 +4345,9 @@ World.build = function (opts) {
   /* ---------------- street furniture ---------------- */
   this._streetFurniture(rnd);
   this._streetDetail(rnd);
+
+  /* ---------------- motorway ring, connectors, roundabouts ---------------- */
+  this._highway(rnd);
 
   /* ---------------- surrounding terrain + skyline ---------------- */
   const farCh = Chunk(-1, -1, -4000, -4000, 4000, 4000);
@@ -4672,21 +4879,132 @@ World.signalState = function (i, j, axis, t) {
   return axis === 1 ? nsGreen : ewGreen;
 };
 
+/* ---------- the ring motorway, its slip roads and roundabouts ---------- */
+World._highway = function (rnd) {
+  const R = Terrain.ringR;
+  const SEG = 168;
+  const CW = 9.6;          // one carriageway, two lanes
+  const GAP = 4.2;         // central reservation
+  const road = [.055, .057, .062];
+  const barrier = [.42, .43, .45];
+  this.ring = { R, CW, GAP, seg: SEG };
+
+  for (let k = 0; k < SEG; k++) {
+    const a0 = k / SEG * TAU, a1 = (k + 1) / SEG * TAU;
+    for (const side of [-1, 1]) {
+      const rr = R + side * (GAP * .5 + CW * .5);
+      const x0 = Math.cos(a0) * rr, z0 = Math.sin(a0) * rr;
+      const x1 = Math.cos(a1) * rr, z1 = Math.sin(a1) * rr;
+      const cx = (x0 + x1) * .5, cz = (z0 + z1) * .5;
+      const len = Math.hypot(x1 - x0, z1 - z0) * 1.08;
+      const yaw = Math.atan2(x1 - x0, z1 - z0);
+      this._box(cx, .02, cz, CW, .05, len, yaw, road, .9, 0, 0, M_ASPHALT, 4);
+      // hard shoulder
+      this._box(cx + Math.cos((a0 + a1) * .5) * side * (CW * .5 + 1.4), .015,
+        cz + Math.sin((a0 + a1) * .5) * side * (CW * .5 + 1.4),
+        2.6, .04, len, yaw, [.075, .077, .08], .92, 0, 0, M_ASPHALT, 0);
+      // armco on the outside
+      const bx = Math.cos((a0 + a1) * .5) * (rr + side * (CW * .5 + 2.9));
+      const bz = Math.sin((a0 + a1) * .5) * (rr + side * (CW * .5 + 2.9));
+      this._box(bx, .62, bz, .10, .34, len, yaw, barrier, .45, .85, 0, M_METAL, 0);
+      if (k % 3 === 0) this._box(bx, .38, bz, .13, .78, .13, yaw, [.28, .29, .30], .6, .7, 0, M_METAL, 0);
+    }
+    // central reservation with a double barrier
+    const am = (a0 + a1) * .5;
+    const mx = Math.cos(am) * R, mz = Math.sin(am) * R;
+    const mlen = TAU * R / SEG * 1.08;
+    const myaw = am + PI * .5;
+    this._box(mx, .10, mz, GAP, .20, mlen, myaw, [.30, .31, .29], .9, 0, 0, M_CONCRETE, 0);
+    for (const o of [-1, 1])
+      this._box(Math.cos(am) * (R + o * GAP * .34), .58, Math.sin(am) * (R + o * GAP * .34),
+        .10, .30, mlen, myaw, barrier, .45, .85, 0, M_METAL, 0);
+
+    // lighting gantry
+    if (k % 12 === 0) {
+      const gx = Math.cos(am) * R, gz = Math.sin(am) * R;
+      this._cyl(gx, 5.0, gz, .17, 10.0, [.30, .31, .33], .5, .8, 0, M_METAL, 0);
+      for (const o of [-1, 1]) {
+        const ax2 = Math.cos(am) * (R + o * 9), az2 = Math.sin(am) * (R + o * 9);
+        this._box((gx + ax2) * .5, 9.7, (gz + az2) * .5, 9.4, .18, .18, am + PI * .5, [.30, .31, .33], .5, .8, 0, M_METAL, 0);
+        this._box(ax2, 9.4, az2, 1.1, .26, .5, am + PI * .5, [1, .95, .85], .3, 0, 3.2, M_EMISSIVE, 1);
+        this.lights.push({ p: [ax2, Terrain.h(ax2, az2) + 9.2, az2], col: [1, .92, .78], rad: 34, kind: 'street' });
+      }
+    }
+    // distance markers
+    if (k % 14 === 0) {
+      const sx2 = Math.cos(am) * (R + CW + GAP), sz2 = Math.sin(am) * (R + CW + GAP);
+      this._cyl(sx2, 1.3, sz2, .07, 2.6, [.5, .5, .52], .5, .7, 0, M_METAL, 0);
+      this._box(sx2, 2.7, sz2, 1.3, .8, .10, am + PI * .5, [.12, .35, .18], .5, 0, .35, M_EMISSIVE, 2);
+    }
+  }
+
+  /* four slip roads joining the city to the ring, each with a roundabout */
+  const dirs = [0, PI * .5, PI, PI * 1.5];
+  this.roundabouts = [];
+  for (const a of dirs) {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const rIn = this.half + 12, rOut = R - (GAP * .5 + CW + 4);
+    const rRnd = (rIn + rOut) * .5;
+    const RR = 26;                          // roundabout outer radius
+    // connector, split either side of the roundabout
+    const stretch = (r0, r1) => {
+      const n = Math.max(2, Math.round((r1 - r0) / 26));
+      for (let k = 0; k < n; k++) {
+        const t0 = r0 + (r1 - r0) * k / n, t1 = r0 + (r1 - r0) * (k + 1) / n;
+        const x0 = ca * t0, z0 = sa * t0, x1 = ca * t1, z1 = sa * t1;
+        const len = Math.hypot(x1 - x0, z1 - z0) * 1.08;
+        this._box((x0 + x1) * .5, .02, (z0 + z1) * .5, 15, .05, len,
+          Math.atan2(x1 - x0, z1 - z0), road, .9, 0, 0, M_ASPHALT, 1);
+      }
+    };
+    stretch(rIn, rRnd - RR);
+    stretch(rRnd + RR, rOut);
+
+    // the roundabout itself
+    const cx = ca * rRnd, cz = sa * rRnd;
+    const RING_SEG = 40, LANE = 8.5;
+    for (let k = 0; k < RING_SEG; k++) {
+      const b0 = k / RING_SEG * TAU, b1 = (k + 1) / RING_SEG * TAU;
+      const rr = RR - LANE * .5;
+      const x0 = cx + Math.cos(b0) * rr, z0 = cz + Math.sin(b0) * rr;
+      const x1 = cx + Math.cos(b1) * rr, z1 = cz + Math.sin(b1) * rr;
+      const len = Math.hypot(x1 - x0, z1 - z0) * 1.12;
+      this._box((x0 + x1) * .5, .02, (z0 + z1) * .5, LANE, .05, len,
+        Math.atan2(x1 - x0, z1 - z0), road, .9, 0, 0, M_ASPHALT, 0);
+      // kerb around the island
+      const bm = (b0 + b1) * .5, ir = RR - LANE;
+      this._box(cx + Math.cos(bm) * ir, .14, cz + Math.sin(bm) * ir, 1.0, .30, len * 1.1,
+        Math.atan2(Math.cos(b1) - Math.cos(b0), Math.sin(b1) - Math.sin(b0)) + PI * .5,
+        [.46, .455, .44], .8, 0, 0, M_CONCRETE, 0);
+    }
+    // planted island with a monument
+    this._cyl(cx, .22, cz, RR - LANE - .5, .44, [.10, .21, .07], .95, 0, 0, M_GRASS, 0);
+    this._cyl(cx, 1.1, cz, 2.2, 2.2, [.48, .47, .45], .85, 0, 0, M_CONCRETE, 0);
+    this._cyl(cx, 4.4, cz, .8, 6.6, [.55, .54, .50], .6, .25, 0, M_CONCRETE, 0);
+    this._sph(cx, 8.2, cz, 1.1, 1.1, 1.1, [.85, .70, .32], .2, 1, .5, M_METAL, 0);
+    for (let k = 0; k < 7; k++) {
+      const b = k / 7 * TAU;
+      this._tree(cx + Math.cos(b) * (RR - LANE - 4), cz + Math.sin(b) * (RR - LANE - 4), rnd, false);
+    }
+    this.addCollider(cx - (RR - LANE), cz - (RR - LANE), cx + (RR - LANE), cz + (RR - LANE), 500);
+    this.roundabouts.push({ x: cx, z: cz, r: RR });
+    this.lights.push({ p: [cx, Terrain.h(cx, cz) + 7, cz], col: [1, .9, .7], rad: 40, kind: 'sign' });
+  }
+};
+
 /* ---------- outskirts: ground plane, distant skyline, hills ---------- */
 World._outskirts = function (rnd) {
   const half = this.half;
   const far = half + 1400;
   // ground
   this._box(0, -.06, 0, far * 2, .1, far * 2, 0, [.085, .095, .075], .95, 0, 0, M_GRASS, 0);
-  // ring road / apron just outside the grid
-  for (const s of [-1, 1]) {
-    this._box(s * (half + 24), -.01, 0, 40, .02, half * 2 + 100, 0, [.06, .062, .066], .9, 0, 0, M_ASPHALT, 0);
-    this._box(0, -.01, s * (half + 24), half * 2 + 100, .02, 40, 0, [.06, .062, .066], .9, 0, 0, M_ASPHALT, 0);
-  }
+
   // distant skyline
   for (let k = 0; k < 260; k++) {
     const a = rnd() * TAU;
     const d = half + 160 + rnd() * 950;
+    // keep the skyline clear of the motorway corridor, it was being built on top of it
+    if (Math.abs(d - Terrain.ringR) < 110) continue;
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     const w = 16 + rnd() * 46, h = 30 + rnd() * rnd() * 220;
     const g = .10 + rnd() * .10;
@@ -4698,6 +5016,56 @@ World._outskirts = function (rnd) {
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     const r = 300 + rnd() * 700, h = 120 + rnd() * 420;
     this._sph(x, -h * .25, z, r, h, r * (.7 + rnd() * .6), [.055, .07, .085], .98, 0, 0, M_FOLIAGE, 0);
+  }
+};
+
+/* ---------- the height field, as drawable tiles ---------- */
+World.buildTerrain = function (meshes) {
+  if (this.terrain) for (const t of this.terrain) { /* meshes are kept, tiles rebuilt rarely */ }
+  this.terrain = [];
+  const TILE = 304, RES = 16;   // 304 = 4 city cells, so verts land on cell corners
+  const reach = this.half + 1500;
+  const n = Math.ceil((reach * 2) / TILE);
+  const start = -Math.ceil(n / 2) * TILE;
+  for (let tj = 0; tj < n; tj++) {
+    for (let ti = 0; ti < n; ti++) {
+      const x0 = start + ti * TILE, z0 = start + tj * TILE;
+      const g = new Geo();
+      let ylo = 1e9, yhi = -1e9;
+      for (let j = 0; j <= RES; j++) {
+        for (let i = 0; i <= RES; i++) {
+          const x = x0 + TILE * i / RES, z = z0 + TILE * j / RES;
+          const y = Terrain.h(x, z);
+          if (y < ylo) ylo = y; if (y > yhi) yhi = y;
+          const d = 2.0;
+          const hx = Terrain.h(x + d, z) - Terrain.h(x - d, z);
+          const hz = Terrain.h(x, z + d) - Terrain.h(x, z - d);
+          let nx = -hx, ny = 2 * d, nz = -hz;
+          const l = Math.hypot(nx, ny, nz) || 1;
+          g.v(x, y, z, nx / l, ny / l, nz / l, x * 0.05, z * 0.05);
+        }
+      }
+      // the city footprint is completely paved by roads and block platforms,
+      // so the ground mesh gets a hole cut in it rather than fighting them
+      const e = this.half;
+      for (let j = 0; j < RES; j++) for (let i = 0; i < RES; i++) {
+        const cxq = x0 + TILE * (i + 0.5) / RES, czq = z0 + TILE * (j + 0.5) / RES;
+        if (cxq > -e && cxq < e && czq > -e && czq < e) continue;
+        const a = j * (RES + 1) + i;
+        g.quad(a, a + RES + 1, a + RES + 2, a + 1);
+      }
+      if (!g.i.length) continue;
+      const mesh = buildMesh(g.done());
+      const b = new Batch(mesh, 1, false);
+      const m = M4.n();
+      b.push(m, .10, .13, .075, .95, 0, 0, M_GRASS, 0);
+      b.upload();
+      this.terrain.push({
+        batch: b, cx: x0 + TILE / 2, cz: z0 + TILE / 2,
+        ex: TILE / 2 + 4, ez: TILE / 2 + 4,
+        cy: (ylo + yhi) / 2, ey: (yhi - ylo) / 2 + 6
+      });
+    }
   }
 };
 
@@ -4980,6 +5348,7 @@ class Vehicle {
     /* ---------- wheels ---------- */
     let grounded = 0;
     const cp = [0, 0, 0], wp = [0, 0, 0], down = [0, 0, 0], cv = [0, 0, 0];
+    const gN = this._gn || (this._gn = [0, 1, 0]);
     V3.set(down, -up[0], -up[1], -up[2]);
 
     for (let i = 0; i < 4; i++) {
@@ -4989,6 +5358,7 @@ class Vehicle {
       V3.copy(w.wp, wp);
       const maxLen = w.rest + w.r;
       const gY = world.groundY(wp[0], wp[2]);
+      world.groundNormal(wp[0], wp[2], gN);
       let t = 1e9;
       if (down[1] < -0.15) t = (wp[1] - gY) / -down[1];
       w.prevComp = w.comp;
@@ -5030,20 +5400,27 @@ class Vehicle {
       w.load = susp;
 
       const rx = cp[0] - this.pos[0], ry = cp[1] - this.pos[1], rz = cp[2] - this.pos[2];
-      addForce(up[0] * susp, up[1] * susp, up[2] * susp, rx, ry, rz);
+      let sux = lerp(up[0], gN[0], 0.55), suy = lerp(up[1], gN[1], 0.55), suz = lerp(up[2], gN[2], 0.55);
+      const sul = Math.hypot(sux, suy, suz) || 1;
+      sux /= sul; suy /= sul; suz /= sul;
+      addForce(sux * susp, suy * susp, suz * susp, rx, ry, rz);
 
-      /* tyre frame projected onto the ground plane */
+      /* tyre frame projected onto the contact plane, not the horizontal —
+         this is what lets the car climb and be pulled back down by gravity */
       const st = w.steered ? this.steer : 0;
       const cs = Math.cos(st), sn = Math.sin(st);
       let fx = fwd[0] * cs + right[0] * sn, fy = fwd[1] * cs + right[1] * sn, fz = fwd[2] * cs + right[2] * sn;
-      // project onto horizontal plane
-      let fl = Math.hypot(fx, fz) || 1;
-      fx /= fl; fy = 0; fz /= fl;
-      const sx = fz, sz = -fx;   // right = fwd x up
+      const gnx = gN[0], gny = gN[1], gnz = gN[2];
+      const fd = fx * gnx + fy * gny + fz * gnz;
+      fx -= gnx * fd; fy -= gny * fd; fz -= gnz * fd;
+      let fl = Math.hypot(fx, fy, fz) || 1;
+      fx /= fl; fy /= fl; fz /= fl;
+      // right = normal x forward
+      const sx = gny * fz - gnz * fy, sy = gnz * fx - gnx * fz, sz = gnx * fy - gny * fx;
 
       this.pointVel(cv, rx, ry, rz);
-      const vF = cv[0] * fx + cv[2] * fz;
-      const vS = cv[0] * sx + cv[2] * sz;
+      const vF = cv[0] * fx + cv[1] * fy + cv[2] * fz;
+      const vS = cv[0] * sx + cv[1] * sy + cv[2] * sz;
 
       const surfMu = w.surface === 1 ? 0.86 : 1.0;
       const wetMu = this.wetness ? lerp(1, (ph.wetGrip === undefined ? 1 : ph.wetGrip) * 0.86, this.wetness) : 1;
@@ -5092,11 +5469,11 @@ class Vehicle {
       const skidAmt = clamp01((Math.abs(alpha) - 0.14) * 2.6) + clamp01((Math.abs(kappa) - 0.28) * 1.1);
       w.skid = damp(w.skid, clamp01(skidAmt) * clamp01(this.speed / 3), 14, dt);
 
-      addForce(fx * Fx + sx * Fy, 0, fz * Fx + sz * Fy, rx, ry, rz);
+      addForce(fx * Fx + sx * Fy, fy * Fx + sy * Fy, fz * Fx + sz * Fy, rx, ry, rz);
 
       // rolling resistance
       const rr = w.load * 0.014;
-      addForce(-fx * rr * Math.sign(vF), 0, -fz * rr * Math.sign(vF), rx, ry, rz);
+      addForce(-fx * rr * Math.sign(vF), -fy * rr * Math.sign(vF), -fz * rr * Math.sign(vF), rx, ry, rz);
     }
     this.grounded = grounded;
 
@@ -5180,7 +5557,8 @@ class Vehicle {
       }
     }
     // world bounds
-    const lim = world.half + 130;
+    // the drivable area now reaches past the ring motorway, not just the city
+    const lim = world.ring ? world.ring.R + 240 : world.half + 130;
     for (const ax of [0, 2]) {
       if (this.pos[ax] < -lim) { this.pos[ax] = -lim; this.vel[ax] = Math.abs(this.vel[ax]) * 0.3; hit = Math.max(hit, 0.3); }
       if (this.pos[ax] > lim) { this.pos[ax] = lim; this.vel[ax] = -Math.abs(this.vel[ax]) * 0.3; hit = Math.max(hit, 0.3); }
@@ -7006,6 +7384,16 @@ const R = {
   drawWorld(prog, cullSphere, isShadow) {
     let drawn = 0;
     const pl = this.planes;
+    if (World.terrain) {
+      for (const t of World.terrain) {
+        if (cullSphere) {
+          const dx = Math.max(0, Math.abs(cullSphere.x - t.cx) - t.ex);
+          const dz = Math.max(0, Math.abs(cullSphere.z - t.cz) - t.ez);
+          if (dx * dx + dz * dz > cullSphere.r * cullSphere.r) continue;
+        } else if (!aabbInFrustum(pl, t.cx, t.cy, t.cz, t.ex, t.ey, t.ez)) continue;
+        t.batch.draw(); drawn++;
+      }
+    }
     for (const ch of World.chunks) {
       if (!ch.batches) continue;
       if (cullSphere) {
@@ -8428,7 +8816,7 @@ const MapView = {
     this.fit();
     this.centre();
     // open showing roughly 900 m across, like a satnav rather than a world map
-    this.zoom = clamp(Math.min(this.cv.width, this.cv.height) / 900, this.minZoom, this.maxZoom);
+    this.zoom = clamp(Math.min(this.cv.width, this.cv.height) / 1400, this.minZoom, this.maxZoom);
     $('mapscreen').classList.remove('hidden');
     this.draw();
   },
@@ -8552,6 +8940,33 @@ const MapView = {
       }
       c.stroke();
       c.setLineDash([]);
+    }
+
+    // ring motorway, slip roads and roundabouts
+    if (World.ring) {
+      const RR = World.ring.R, GAP = World.ring.GAP, CW = World.ring.CW;
+      c.strokeStyle = '#1d2a38';
+      c.lineWidth = Math.max(2, (GAP + CW * 2 + 6) * z);
+      c.beginPath();
+      const o = this.worldToScreen(0, 0);
+      c.arc(o[0], o[1], RR * z, 0, TAU);
+      c.stroke();
+      c.strokeStyle = 'rgba(150,190,225,.30)';
+      c.lineWidth = Math.max(1, 1.4 * this.dpr);
+      c.beginPath(); c.arc(o[0], o[1], RR * z, 0, TAU); c.stroke();
+      for (const rb of (World.roundabouts || [])) {
+        const q = this.worldToScreen(rb.x, rb.z);
+        c.strokeStyle = '#1d2a38'; c.lineWidth = Math.max(2, 9 * z);
+        c.beginPath(); c.arc(q[0], q[1], (rb.r - 4) * z, 0, TAU); c.stroke();
+        c.fillStyle = '#24402c';
+        c.beginPath(); c.arc(q[0], q[1], (rb.r - 9) * z, 0, TAU); c.fill();
+        // the slip road running in to the city
+        const a = Math.atan2(rb.z, rb.x);
+        const p0 = this.worldToScreen(Math.cos(a) * (World.half + 10), Math.sin(a) * (World.half + 10));
+        const p1 = this.worldToScreen(Math.cos(a) * (RR - 12), Math.sin(a) * (RR - 12));
+        c.strokeStyle = '#1d2a38'; c.lineWidth = Math.max(2, 15 * z);
+        c.beginPath(); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); c.stroke();
+      }
     }
 
     // traffic
@@ -8947,6 +9362,7 @@ const Game = {
     World.build({ seed: 20260817 });
     setLoad(.62, 'wiring the grid'); await frame();
     World.upload(R.meshes);
+    World.buildTerrain(R.meshes);
 
     setLoad(.74, 'filling the streets'); await frame();
     Traffic.init(5);
@@ -9481,7 +9897,7 @@ const Game = {
     R.wear = clamp01(0.22 + (p.damage || 0) * 0.85 + clamp01(p.odo / 90000) * 0.25);
     R.speedBlur = S.mblur ? clamp01((kmh - 95) / 210) * .95 * (p.nosActive ? 1.6 : 1) : 0;
     R.cam.fov = damp(R.cam.fov, S.fov + clamp01((kmh - 40) / 260) * 15 + (p.nosActive ? 6 : 0), 4, dt);
-    this.scene.ca = clamp01((kmh - 150) / 190) * 1.5;
+    this.scene.ca = clamp01((kmh - 170) / 210) * 0.55;
   },
 
   updateMode(dt, playing) {

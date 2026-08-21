@@ -143,6 +143,7 @@ const Game = {
     World.build({ seed: 20260817 });
     setLoad(.62, 'wiring the grid'); await frame();
     World.upload(R.meshes);
+    World.buildTerrain(R.meshes);
 
     setLoad(.74, 'filling the streets'); await frame();
     Traffic.init(5);
@@ -677,7 +678,7 @@ const Game = {
     R.wear = clamp01(0.22 + (p.damage || 0) * 0.85 + clamp01(p.odo / 90000) * 0.25);
     R.speedBlur = S.mblur ? clamp01((kmh - 95) / 210) * .95 * (p.nosActive ? 1.6 : 1) : 0;
     R.cam.fov = damp(R.cam.fov, S.fov + clamp01((kmh - 40) / 260) * 15 + (p.nosActive ? 6 : 0), 4, dt);
-    this.scene.ca = clamp01((kmh - 150) / 190) * 1.5;
+    this.scene.ca = clamp01((kmh - 170) / 210) * 0.55;
   },
 
   updateMode(dt, playing) {
