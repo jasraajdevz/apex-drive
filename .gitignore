@@ -1,5 +1,4 @@
 # local dev only
-server.js
 .claude/
 node_modules/
 
