@@ -175,6 +175,15 @@
   <div id="shiftlights"></div>
 
   <canvas id="minimap" width="280" height="280"></canvas>
+  <button id="mapbtn" title="Map (M)">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <path d="M9 3.5 3.5 5.8v14.7L9 18.2l6 2.3 5.5-2.3V3.5L15 5.8 9 3.5Z"
+            fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M9 3.5v14.7M15 5.8v14.7" fill="none" stroke="currentColor" stroke-width="1.7"/>
+    </svg>
+    <span>MAP</span>
+  </button>
+  <div id="wayline" class="hidden"><i>◆</i><b id="waydist">0 m</b></div>
 
   <div id="center">
     <div id="bigmsg"></div>
@@ -243,6 +252,39 @@
     <div id="tiltbar" class="hidden"><i></i></div>
   </div>
   </div>
+</div>
+
+<!-- ===================== MAP ===================== -->
+<div id="mapscreen" class="screen hidden">
+  <header class="maphead">
+    <div class="maptitle">
+      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+        <path d="M9 3.5 3.5 5.8v14.7L9 18.2l6 2.3 5.5-2.3V3.5L15 5.8 9 3.5Z"
+              fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        <path d="M9 3.5v14.7M15 5.8v14.7" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      </svg>
+      CITY MAP
+    </div>
+    <div class="maphint">drag to pan · scroll to zoom · click to drop a waypoint</div>
+    <button class="xbtn" id="mapclose">✕</button>
+  </header>
+  <div class="mapwrap"><canvas id="bigmap"></canvas></div>
+  <footer class="mapfoot">
+    <div class="legend">
+      <span><i style="background:#2a3a4d"></i>Downtown</span>
+      <span><i style="background:#24402c"></i>Park</span>
+      <span><i style="background:#3a3320"></i>Industrial</span>
+      <span><i style="background:#3d2b3a"></i>Plaza</span>
+      <span><i style="background:#22e3ff"></i>You</span>
+      <span><i style="background:#ffcf6b"></i>Waypoint</span>
+      <span><i style="background:#ff3d68"></i>Checkpoint</span>
+    </div>
+    <div class="mapacts">
+      <button class="btn ghost" id="mapclear">Clear waypoint</button>
+      <button class="btn ghost" id="mapcentre">Centre on car</button>
+      <button class="btn" id="mapgo">Close</button>
+    </div>
+  </footer>
 </div>
 
 <!-- ===================== PAUSE ===================== -->

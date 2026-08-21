@@ -165,6 +165,7 @@ const Game = {
     this.todNow = this.settings.tod;
     HUD.init();
     Shop.init();
+    MapView.init();
     this.bindUI();
     Input.init();
     this.applyCar();
@@ -188,7 +189,7 @@ const Game = {
 
   prepModel(m) {
     const o = { spec: m.spec };
-    for (const k of ['paint', 'dark', 'glass', 'chrome', 'lightF', 'lightR', 'brakeL', 'tire', 'rim', 'disc', 'caliper'])
+    for (const k of ['paint', 'dark', 'glass', 'chrome', 'lightF', 'lightR', 'brakeL', 'stripe', 'tire', 'rim', 'disc', 'caliper'])
       o[k] = buildMesh(m[k]);
     return o;
   },
@@ -224,7 +225,7 @@ const Game = {
     this.player.manual = this.settings.manual;
 
     this.carBatches = {};
-    for (const k of ['paint', 'dark', 'chrome', 'lightF', 'lightR', 'brakeL', 'tire', 'rim', 'disc', 'caliper'])
+    for (const k of ['paint', 'dark', 'chrome', 'lightF', 'lightR', 'brakeL', 'stripe', 'tire', 'rim', 'disc', 'caliper'])
       this.carBatches[k] = new Batch(m[k], 8, true);
     this.carGlass = new Batch(m.glass, 8, true);
 
@@ -338,7 +339,7 @@ const Game = {
     // mobile browsers fire resize every time the address bar slides; each one
     // used to reallocate the entire render target set
     let rzT = 0;
-    addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => R.resize(), 180); });
+    addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => { R.resize(); if (MapView.open) { MapView.fit(); MapView.draw(); } }, 180); });
 
     GLX.onLost = () => {
       _running = false;
@@ -478,7 +479,9 @@ const Game = {
 
   onKey(code, e) {
     if (code === 'KeyP') { this.togglePhoto(); return; }
+    if (code === 'KeyM') { MapView.toggle(); return; }
     if (code === 'Escape') {
+      if (MapView.open) { MapView.close(); return; }
       if (this.state === 'play') this.setPaused(!this.paused);
       else if (this.state === 'shop') this.closeShop();
       else if (this.state === 'settings') {
@@ -567,7 +570,7 @@ const Game = {
 
     Input.poll(dt, S.steerRate);
     const p = this.player;
-    const playing = this.state === 'play' && !this.paused && !this.photo;
+    const playing = this.state === 'play' && !this.paused && !this.photo && !MapView.open;
 
     const inp = playing
       ? { steer: Input.steer, throttle: Input.throttle, brake: Input.brake }
@@ -640,6 +643,17 @@ const Game = {
     this.updateEffects(dt);
     this.updateCamera(dt, playing);
     this.updateMode(dt, playing);
+
+    const wp = MapView.guidance();
+    const wl = $('wayline');
+    if (wp) {
+      wl.classList.remove('hidden');
+      $('waydist').textContent = wp.dist > 950
+        ? (wp.dist / 1000).toFixed(1) + ' km' : Math.round(wp.dist) + ' m';
+      const rel = wrapPi(wp.bearing - this.camYaw);
+      $('wayline').firstElementChild.style.transform = 'rotate(' + rel.toFixed(3) + 'rad)';
+    } else wl.classList.add('hidden');
+    if (MapView.open) { this._mapT = (this._mapT || 0) + dt; if (this._mapT > 0.12) { this._mapT = 0; MapView.draw(); } }
 
     Audio2.updateEngine(p, dt, this.camMode === 2 ? 1.5 : this.camDist, R.wet > .5);
 
@@ -1033,6 +1047,11 @@ const Game = {
     const dk = 1 - dmg * .35;
     const B = this.carBatches;
     B.paint.push(m, pm.c[0] * dk, pm.c[1] * dk, pm.c[2] * dk, dr, pm.metal * (1 - dmg * .6), 0, M_PAINT, 0);
+    const st = Garage.car().stripe | 0;
+    if (st >= 0 && B.stripe) {
+      const sc = srgb2lin(hex2rgb(PAINTS[st % PAINTS.length].c));
+      B.stripe.push(m, sc[0] * dk, sc[1] * dk, sc[2] * dk, dr, pm.metal * (1 - dmg * .6), 0, M_PAINT, 0);
+    }
     B.dark.push(m, .075, .078, .085, .58, .05, 0, M_PLASTIC, 0);
     B.chrome.push(m, .82, .84, .88, .13, 1, 0, M_METAL, 0);
     const hl = p.headlights;
@@ -1123,10 +1142,12 @@ const Game = {
       wm[8] = st * cp2; wm[9] = -sp2; wm[10] = ct * cp2; wm[11] = 0;
       wm[12] = w.lp[0]; wm[13] = w.lp[1] - (w.rest - w.comp); wm[14] = w.lp[2]; wm[15] = 1;
       M4.mul(out, bodyM, wm);
-      B.tire.push(out, .04, .042, .045, .82, 0, 0, M_TIRE, 0);
-      B.rim.push(out, .72, .74, .78, .16, 1, 0, M_METAL, 0);
-      B.disc.push(out, .30, .30, .32, .30, 1, 0, M_METAL, 0);
-      B.caliper.push(out, .55, .06, .05, .35, .2, 0, M_PAINT, 0);
+      B.tire.push(out, .055, .057, .060, .86, 0, 0, M_TIRE, 0);
+      const rimc = RIM_FINISH[(Garage.car().rimFinish | 0) % RIM_FINISH.length];
+      B.rim.push(out, rimc[0], rimc[1], rimc[2], rimc[3], rimc[4], 0, M_METAL, 0);
+      B.disc.push(out, .26, .26, .275, .34, 1, 0, M_METAL, 0);
+      const cal = CALIPER_COLS[(Garage.car().caliper | 0) % CALIPER_COLS.length];
+      B.caliper.push(out, cal[0], cal[1], cal[2], .30, .25, 0, M_PAINT, 0);
     }
   },
 

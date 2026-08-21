@@ -98,7 +98,7 @@ function geoGrilleMesh(w, h, d, cols = 9, rows = 4) {
 function geoRim(R, W, spokes, style) {
   const g = new Geo();
   const I = M4.n();
-  const rimR = R * 0.635;
+  const rimR = R * 0.575;
   // barrel + outer lip
   g.append(geoLatheX([
     [rimR * 0.99, -W / 2 + 0.012],
@@ -140,7 +140,7 @@ function geoRim(R, W, spokes, style) {
 
 /* tyre with rounded shoulders and a sidewall step */
 function geoTyre(R, W) {
-  const rimR = R * 0.635;
+  const rimR = R * 0.575;
   return geoLatheX([
     [rimR, -W / 2 + 0.005],
     [R * 0.80, -W / 2],

@@ -29,6 +29,17 @@ const CAR_SECT = 24; // outline points per station
 /* profile arrays are authored nose-first; station params run tail->nose */
 const pf = (arr, t) => catmull(arr, 1 - clamp01(t));
 
+function bodyStationAt(spec, t, bodyW) {
+  const P = spec.profile, L = spec.len;
+  const z = lerp(-L / 2, L / 2, t);
+  const hw = pf(P.width, t) * spec.width * .5;
+  const yb = pf(P.sill, t), yt = pf(P.belt, t);
+  const cy = (yb + yt) * .5, b = Math.max((yt - yb) * .5, .015);
+  const pts = squircle(Math.max(hw, .02), b, pf(P.round, t), CAR_SECT, pf(P.taperT, t), pf(P.taperB, t));
+  for (const q of pts) q[1] += cy;
+  return { z, pts, cy };
+}
+
 function bodyStations(spec, n, bodyW) {
   const P = spec.profile, L = spec.len, out = [];
   for (let s = 0; s < n; s++) {
@@ -135,7 +146,7 @@ function buildCar(spec) {
     for (const sx of [-1, 1]) {
       const hw = spec.wheelW * .5 + flare;
       // inner fender liner, kept narrower than the tyre so it hides behind it
-      dark.append(geoArch3(r * 1.04, spec.wheelW * .5 - .02, .13, 0.06 * PI, 0.94 * PI, 14),
+      dark.append(geoArch3(r * 1.01, spec.wheelW * .5 - .055, .085, 0.10 * PI, 0.90 * PI, 14),
         T(sx * track, r, z));
       // painted flare arching over the top
       paint.append(geoArch3(r * 1.17, hw, .07, 0.08 * PI, 0.92 * PI, 20, .30),
@@ -281,21 +292,35 @@ function buildCar(spec) {
     }
   }
 
+  /* ---------------- optional racing stripe ---------------- */
+  const stripe = new Geo();
+  {
+    const w = Math.max(2, Math.round(CAR_SECT * 0.055));
+    const q2 = CAR_SECT / 4;
+    stripe.append(loftBand(bs, q2 - w, q2 + w, 0.010), I);
+    stripe.append(loftBand(cs, q2 - w, q2 + w, 0.020), I);
+  }
+
+  /* ---------------- per-model signature bodywork ---------------- */
+  addDetail(spec, { paint, dark, glass, chrome, lightF, lightR, brake },
+    { T, RX, L, W, bodyW, belt });
+
   /* ---------------- wheels ---------------- */
   const R = spec.wheelR, WW = spec.wheelW;
   const tire = geoTyre(R, WW);
   const rim = geoRim(R, WW, spec.spokes || 5, spec.rimStyle || 'split');
-  const rimR = R * .635;
+  const rimR = R * .575;
   const disc = geoLatheX([[rimR * .32, -.020], [rimR * .90, -.020], [rimR * .90, .020], [rimR * .32, .020]], 24, true);
   const caliperG = new Geo();
   caliperG.append(geoRounded(.06, rimR * .90, rimR * .34, .02, 4), T(-.05, rimR * .55, 0));
 
-  for (const g of [paint, dark, glass, chrome, lightF, lightR, brake]) shiftGeo(g, -SAG);
+  for (const g of [paint, dark, glass, chrome, lightF, lightR, brake, stripe]) shiftGeo(g, -SAG);
 
   return {
     spec,
     paint: paint.done(), dark: dark.done(), glass: glass.done(), chrome: chrome.done(),
     lightF: lightF.done(), lightR: lightR.done(), brakeL: brake.done(),
+    stripe: stripe.done(),
     tire: tire.done(), rim: rim.done(), disc: disc.done(), caliper: caliperG.done()
   };
 }
@@ -311,6 +336,7 @@ const CAR_SPECS = [
     grilleY: .44, lightY: .68, lampW: .30, tailY: .76, tailBar: 1, deckY: .96,
     axleF: 1.42, axleR: -1.36, trackF: .82, trackR: .86,
     wing: { z: .34, y: 1.02, chord: .30, h: .20, gurney: 1 },
+    sig: { midEngine: 1, roofScoop: 0, canards: 1 },
     profile: {
       width: [.66, .92, 1.00, 1.00, 1.00, .96, .78],
       sill:  [.26, .14, .11, .11, .11, .15, .28],
@@ -330,6 +356,7 @@ const CAR_SPECS = [
     grilleY: .50, lightY: .76, lampW: .26, tailY: .84, tailBar: 0, deckY: 1.02,
     axleF: 1.48, axleR: -1.42, trackF: .80, trackR: .82,
     ducktail: { y: .98, z: .30 },
+    sig: { chromeTrim: 1, roundTails: 1, fourDoor: 0 },
     profile: {
       width: [.66, .93, 1.00, 1.00, .99, .95, .78],
       sill:  [.28, .16, .13, .13, .13, .17, .30],
@@ -349,6 +376,7 @@ const CAR_SPECS = [
     grilleY: .58, lightY: .84, lampW: .24, tailY: .90, tailBar: 1, deckY: 1.08,
     axleF: 1.52, axleR: -1.48, trackF: .82, trackR: .85,
     ducktail: { y: 1.06, z: .28 },
+    sig: { quadLamps: 1, hoodScoop: 1, sideExhaust: 1, bonnetPins: 1 },
     profile: {
       width: [.70, .95, 1.00, 1.00, 1.00, .96, .82],
       sill:  [.30, .19, .16, .16, .16, .20, .32],
@@ -363,14 +391,15 @@ const CAR_SPECS = [
   },
   {
     id: 'nomad', price: 62000, name: 'Nomad XR', cls: 'Crossover',
-    len: 4.72, width: 1.96, bodyW: .91, wheelR: .40, wheelW: .30, spokes: 7, rimStyle: 'split', rhd: 1,
+    len: 4.72, width: 1.96, bodyW: .91, wheelR: .45, wheelW: .32, spokes: 7, rimStyle: 'split', rhd: 1,
     flareF: .055, flareR: .075, cage: 0, cpillar: 1, quadPipes: 0,
-    grilleY: .80, lightY: 1.04, lampW: .26, tailY: 1.14, tailBar: 0, deckY: 1.50,
+    grilleY: .84, lightY: 1.06, lampW: .26, tailY: 1.16, tailBar: 0, deckY: 1.50,
     axleF: 1.42, axleR: -1.40, trackF: .80, trackR: .81,
+    sig: { roofRails: 1, cladding: 1, skidPlates: 1, spareWheel: 1, fourDoor: 1 },
     profile: {
       width: [.72, .95, 1.00, 1.00, 1.00, .97, .84],
-      sill:  [.42, .32, .29, .29, .29, .33, .44],
-      belt:  [.98, 1.12, 1.22, 1.26, 1.28, 1.26, 1.16],
+      sill:  [.54, .46, .44, .44, .44, .47, .56],
+      belt:  [1.02, 1.14, 1.22, 1.26, 1.28, 1.26, 1.18],
       round: [3.6, 4.1, 4.7, 5.0, 4.8, 4.4, 3.8],
       taperT:[.20, .12, .08, .06, .06, .10, .20],
       taperB:[.22, .14, .10, .08, .10, .14, .24],
@@ -386,6 +415,7 @@ const CAR_SPECS = [
     grilleY: .38, lightY: .60, lampW: .26, tailY: .70, tailBar: 1, deckY: .90,
     axleF: 1.46, axleR: -1.40, trackF: .86, trackR: .90,
     wing: { z: .20, y: 1.14, chord: .36, h: .34, gurney: 1 },
+    sig: { swanWing: 1, canards: 1, towHook: 1, bonnetPins: 1, roofScoop: 1 },
     profile: {
       width: [.68, .95, 1.00, 1.00, 1.00, .98, .84],
       sill:  [.22, .10, .08, .08, .08, .12, .24],

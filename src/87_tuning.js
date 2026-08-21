@@ -119,6 +119,21 @@ const PARTS = {
 
 const PART_ORDER = ['forced', 'intake', 'exhaust', 'ecu', 'cooling', 'gearbox', 'clutch', 'diff', 'drivetrain', 'tyres', 'susp', 'brakes', 'weight', 'aero', 'nitrous'];
 
+/* rim finishes and caliper colours are cosmetic, priced in the shop */
+const RIM_FINISH = [
+  [.30, .31, .33, .34, 1],    // anthracite
+  [.72, .74, .78, .13, 1],    // polished
+  [.055, .057, .06, .40, 1],  // satin black
+  [.62, .50, .18, .22, 1],    // bronze
+  [.78, .78, .80, .55, .2],   // white
+];
+const RIM_FINISH_NAMES = ['Anthracite', 'Polished', 'Satin Black', 'Bronze', 'Gloss White'];
+const CALIPER_COLS = [
+  [.55, .06, .05], [.06, .06, .07], [.75, .55, .04],
+  [.06, .30, .60], [.10, .45, .16], [.62, .62, .64],
+];
+const CALIPER_NAMES = ['Red', 'Black', 'Gold', 'Blue', 'Green', 'Silver'];
+
 const RIMS = [
   { n: 'Split 5', spokes: 5, cost: 0 },
   { n: 'Mesh 10', spokes: 10, cost: 1800 },
@@ -140,7 +155,7 @@ const Garage = {
 
   defaults(id) {
     const p = {}; for (const k of PART_ORDER) p[k] = 0;
-    return { parts: p, engine: 'stock', paint: 1, finish: 0, rim: 0, tint: 0.72 };
+    return { parts: p, engine: 'stock', paint: 1, finish: 0, rim: 0, rimFinish: 0, caliper: 0, stripe: -1, tint: 0.72 };
   },
   load() {
     try {

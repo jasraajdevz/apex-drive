@@ -175,6 +175,15 @@
   <div id="shiftlights"></div>
 
   <canvas id="minimap" width="280" height="280"></canvas>
+  <button id="mapbtn" title="Map (M)">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <path d="M9 3.5 3.5 5.8v14.7L9 18.2l6 2.3 5.5-2.3V3.5L15 5.8 9 3.5Z"
+            fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M9 3.5v14.7M15 5.8v14.7" fill="none" stroke="currentColor" stroke-width="1.7"/>
+    </svg>
+    <span>MAP</span>
+  </button>
+  <div id="wayline" class="hidden"><i>◆</i><b id="waydist">0 m</b></div>
 
   <div id="center">
     <div id="bigmsg"></div>
@@ -243,6 +252,39 @@
     <div id="tiltbar" class="hidden"><i></i></div>
   </div>
   </div>
+</div>
+
+<!-- ===================== MAP ===================== -->
+<div id="mapscreen" class="screen hidden">
+  <header class="maphead">
+    <div class="maptitle">
+      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+        <path d="M9 3.5 3.5 5.8v14.7L9 18.2l6 2.3 5.5-2.3V3.5L15 5.8 9 3.5Z"
+              fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        <path d="M9 3.5v14.7M15 5.8v14.7" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      </svg>
+      CITY MAP
+    </div>
+    <div class="maphint">drag to pan · scroll to zoom · click to drop a waypoint</div>
+    <button class="xbtn" id="mapclose">✕</button>
+  </header>
+  <div class="mapwrap"><canvas id="bigmap"></canvas></div>
+  <footer class="mapfoot">
+    <div class="legend">
+      <span><i style="background:#2a3a4d"></i>Downtown</span>
+      <span><i style="background:#24402c"></i>Park</span>
+      <span><i style="background:#3a3320"></i>Industrial</span>
+      <span><i style="background:#3d2b3a"></i>Plaza</span>
+      <span><i style="background:#22e3ff"></i>You</span>
+      <span><i style="background:#ffcf6b"></i>Waypoint</span>
+      <span><i style="background:#ff3d68"></i>Checkpoint</span>
+    </div>
+    <div class="mapacts">
+      <button class="btn ghost" id="mapclear">Clear waypoint</button>
+      <button class="btn ghost" id="mapcentre">Centre on car</button>
+      <button class="btn" id="mapgo">Close</button>
+    </div>
+  </footer>
 </div>
 
 <!-- ===================== PAUSE ===================== -->
@@ -641,6 +683,47 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
   #touch .tc.gas{height:calc(74px*var(--tscale))}
   #touch .tc.brake{height:calc(74px*var(--tscale))}
 }
+
+/* ---------- map button + waypoint readout ---------- */
+#mapbtn{position:absolute;top:228px;right:22px;width:56px;height:52px;border-radius:12px;
+  background:rgba(9,14,22,.72);border:1px solid var(--line);color:var(--ink);cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  pointer-events:auto;backdrop-filter:blur(8px);transition:.15s}
+#mapbtn:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 0 18px rgba(34,227,255,.22)}
+#mapbtn span{font-size:8.5px;letter-spacing:2.2px;opacity:.75}
+#wayline{position:absolute;top:288px;right:22px;display:flex;align-items:center;gap:6px;
+  background:rgba(9,14,22,.72);border:1px solid rgba(255,207,107,.4);border-radius:10px;
+  padding:5px 10px;color:var(--warm)}
+#wayline i{font-style:normal;font-size:12px}
+#wayline b{font-size:14px;font-weight:700}
+
+/* ---------- full-screen map ---------- */
+#mapscreen{flex-direction:column;background:rgba(4,7,12,.96);backdrop-filter:blur(14px);z-index:30}
+.maphead{display:flex;align-items:center;gap:18px;padding:14px clamp(14px,3vw,30px);
+  border-bottom:1px solid var(--line)}
+.maptitle{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:700;letter-spacing:5px;color:var(--accent)}
+.maphint{font-size:11px;letter-spacing:1.6px;color:var(--dim)}
+.maphead .xbtn{margin-left:auto}
+.mapwrap{flex:1;min-height:0;position:relative;overflow:hidden}
+#bigmap{position:absolute;inset:0;display:block;cursor:crosshair;touch-action:none}
+.mapfoot{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:12px clamp(14px,3vw,30px);border-top:1px solid var(--line)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;letter-spacing:1.4px;color:var(--dim)}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend i{width:11px;height:11px;border-radius:3px;display:block}
+.mapacts{margin-left:auto;display:flex;gap:8px}
+.mapacts .btn{padding:9px 16px;font-size:11.5px}
+@media (max-width:900px){
+  #mapbtn{top:auto;bottom:96px;right:12px;width:48px;height:46px}
+  #wayline{top:130px;right:12px;padding:4px 8px}
+  .maphint{display:none}
+  .maptitle{font-size:14px;letter-spacing:3px}
+  .legend{font-size:9.5px;gap:9px}
+  .mapacts{margin-left:0;width:100%}
+  .mapacts .btn{flex:1}
+}
+.sw.none{display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--dim);
+  background:rgba(255,255,255,.06)}
 
 </style>
 <script>
@@ -2950,7 +3033,7 @@ function geoGrilleMesh(w, h, d, cols = 9, rows = 4) {
 function geoRim(R, W, spokes, style) {
   const g = new Geo();
   const I = M4.n();
-  const rimR = R * 0.635;
+  const rimR = R * 0.575;
   // barrel + outer lip
   g.append(geoLatheX([
     [rimR * 0.99, -W / 2 + 0.012],
@@ -2992,7 +3075,7 @@ function geoRim(R, W, spokes, style) {
 
 /* tyre with rounded shoulders and a sidewall step */
 function geoTyre(R, W) {
-  const rimR = R * 0.635;
+  const rimR = R * 0.575;
   return geoLatheX([
     [rimR, -W / 2 + 0.005],
     [R * 0.80, -W / 2],
@@ -3003,6 +3086,217 @@ function geoTyre(R, W) {
     [R * 0.80, W / 2],
     [rimR, W / 2 - 0.005],
   ], 28, false);
+}
+
+</script>
+<script>
+/* ===== 53_cardetail.js ===== */
+'use strict';
+/* ============================================================
+   Apex Drive — per-model signature bodywork
+
+   Every car was coming out of the same lofted template, so they all
+   read the same. This adds the features that actually identify a car
+   at a glance: what the nose does, what sits on the roof, where the
+   exhaust exits, how the arches are treated.
+   ============================================================ */
+
+/* a thin dark groove following the body contour at one station — panel gaps */
+function shutLine(spec, bodyW, t, i0, i1, push) {
+  const e = 0.008;
+  const a = bodyStationAt(spec, clamp01(t - e), bodyW);
+  const b = bodyStationAt(spec, clamp01(t + e), bodyW);
+  return loftBand([a, b], i0, i1, push === undefined ? 0.004 : push);
+}
+
+function addDetail(spec, G, H) {
+  const { paint, dark, glass, chrome, lightF, lightR } = G;
+  const { T, RX, L, W, bodyW, belt } = H;
+  const sig = spec.sig || {};
+  const S = CAR_SECT;
+
+  /* ---------------- panel gaps, on every car ---------------- */
+  if (spec.profile && spec.profile.width) {
+    const gaps = sig.fourDoor ? [0.30, 0.48, 0.66, 0.80] : [0.34, 0.62, 0.80];
+    for (const t of gaps) {
+      // down the flanks only, from the shoulder to the sill
+      dark.append(shutLine(spec, bodyW, t, 1, S / 2 - 1, 0.005), M4.n());
+    }
+    // bonnet and boot cut lines run across the top
+    dark.append(shutLine(spec, bodyW, 0.86, S / 4 - 3, S / 4 + 3, 0.006), M4.n());
+    dark.append(shutLine(spec, bodyW, 0.16, S / 4 - 3, S / 4 + 3, 0.006), M4.n());
+  }
+
+  /* ---------------- wipers, aerial, fuel filler ---------------- */
+  const cowlZ = spec.profile.cabin.z1 + 0.06;
+  const cowlY = belt(clamp01((cowlZ + L / 2) / L)) - 0.02;
+  for (const sx of [-1, 1]) {
+    dark.append(geoBox(0.035, 0.022, 0.52), RX(sx * bodyW * 0.20, cowlY + 0.03, cowlZ - 0.10, -0.20));
+    dark.append(geoBox(0.028, 0.05, 0.06), T(sx * bodyW * 0.20, cowlY + 0.02, cowlZ + 0.14));
+  }
+  // shark-fin aerial on the roof
+  {
+    const rz = spec.profile.cabin.z0 + 0.30;
+    const tt = clamp01((rz - spec.profile.cabin.z0) / (spec.profile.cabin.z1 - spec.profile.cabin.z0));
+    const ry = catmull(spec.profile.cabin.roof, tt);
+    paint.append(geoBox(0.045, 0.085, 0.24), RX(0, ry + 0.04, rz, 0.30));
+  }
+  // fuel filler
+  {
+    const fz = spec.profile.cabin.z0 - 0.12;
+    const fy = belt(clamp01((fz + L / 2) / L)) - 0.14;
+    chrome.append(geoLatheX([[0.075, 0], [0.082, 0.018], [0.055, 0.026]], 14, true),
+      T(bodyW * 0.5 - 0.005, fy, fz));
+  }
+  // side repeaters
+  for (const sx of [-1, 1])
+    lightF.append(geoBox(0.02, 0.035, 0.11), T(sx * (bodyW * 0.5), belt(0.72) - 0.09, spec.axleF + 0.42));
+
+  /* ---------------- mid-engine deck (supercar) ---------------- */
+  if (sig.midEngine) {
+    const dz = spec.profile.cabin.z0 - 0.34;
+    const dy = spec.deckY - 0.10;
+    glass.append(geoBox(bodyW * 0.62, 0.03, 0.72), T(0, dy + 0.035, dz));
+    for (let i = -3; i <= 3; i++)
+      chrome.append(geoBox(bodyW * 0.60, 0.022, 0.045), RX(0, dy + 0.06, dz + i * 0.105, 0.22));
+    for (const sx of [-1, 1])
+      dark.append(geoBox(0.06, 0.10, 0.78), T(sx * bodyW * 0.33, dy + 0.03, dz));
+    // roof snorkel feeding the engine
+    const tt = 0.08;
+    const ry = catmull(spec.profile.cabin.roof, tt);
+    dark.append(geoRounded(0.30, 0.13, 0.60, 0.05, 5), T(0, ry - 0.02, spec.profile.cabin.z0 + 0.42));
+    dark.append(geoBox(0.24, 0.10, 0.06), T(0, ry + 0.01, spec.profile.cabin.z0 + 0.72));
+  }
+
+  /* ---------------- quad round headlights (muscle) ---------------- */
+  if (sig.quadLamps) {
+    const hz = L * 0.5 - 0.10;
+    for (const sx of [-1, 1]) for (const o of [-1, 1]) {
+      const x = sx * (W * 0.20 + o * 0.145 * sx * sx) * (o < 0 ? 0.72 : 1.16);
+      chrome.append(geoLatheX([[0.108, -0.02], [0.115, 0.02], [0.10, 0.05]], 18, true),
+        T(sx * (W * 0.20 + (o > 0 ? 0.17 : 0)), spec.lightY, hz - 0.02, 1, 1, 1));
+      lightF.append(geoLatheX([[0.085, 0], [0.092, 0.03]], 18, true),
+        T(sx * (W * 0.20 + (o > 0 ? 0.17 : 0)), spec.lightY, hz + 0.035));
+    }
+  }
+
+  /* ---------------- bonnet scoop + stripe (muscle) ---------------- */
+  if (sig.hoodScoop) {
+    const hz = lerp(spec.axleF, L * 0.5, 0.30);
+    const hy = belt((hz + L / 2) / L);
+    dark.append(geoRounded(bodyW * 0.34, 0.11, 0.62, 0.05, 5), T(0, hy + 0.03, hz));
+    dark.append(geoBox(bodyW * 0.26, 0.08, 0.05), T(0, hy + 0.055, hz + 0.30));
+    for (const sx of [-1, 1])
+      chrome.append(geoLatheX([[0.028, 0], [0.032, 0.02]], 10, true),
+        T(sx * bodyW * 0.30, hy + 0.015, hz + 0.34));
+  }
+
+  /* ---------------- side-exit exhausts (muscle) ---------------- */
+  if (sig.sideExhaust) {
+    const ez = spec.axleR + 0.72;
+    const ey = catmull(spec.profile.sill, 0.5) + 0.06;
+    for (const sx of [-1, 1]) {
+      chrome.append(geoBox(0.10, 0.10, 0.66), T(sx * (bodyW * 0.5 + 0.03), ey, ez));
+      dark.append(geoBox(0.055, 0.14, 0.70), T(sx * (bodyW * 0.5 + 0.075), ey, ez));
+    }
+  }
+
+  /* ---------------- chrome greenhouse + round tails (GT) ---------------- */
+  if (sig.chromeTrim) {
+    const cs2 = cabinStations(spec, 14, bodyW);
+    chrome.append(loftBand(cs2, S - 2, S + 2, 0.016), M4.n());
+    chrome.append(loftBand(cs2, S / 2 - 2, S / 2 + 2, 0.016), M4.n());
+    // vent behind the front arch
+    for (const sx of [-1, 1]) {
+      dark.append(geoRounded(0.06, 0.17, 0.30, 0.03, 4), T(sx * (bodyW * 0.5 + 0.01), belt(0.70) - 0.10, spec.axleF - 0.52));
+      for (let i = 0; i < 3; i++)
+        chrome.append(geoBox(0.03, 0.022, 0.26), T(sx * (bodyW * 0.5 + 0.035), belt(0.70) - 0.16 + i * 0.055, spec.axleF - 0.52));
+    }
+  }
+  if (sig.roundTails) {
+    const tz = -L * 0.5 + 0.06;
+    for (const sx of [-1, 1]) for (const o of [-1, 1]) {
+      const x = sx * (W * 0.20 + (o > 0 ? 0.185 : 0));
+      chrome.append(geoLatheX([[0.098, -0.02], [0.104, 0.01]], 16, true), T(x, spec.tailY, tz - 0.01));
+      lightR.append(geoLatheX([[0.078, 0], [0.084, 0.026]], 16, true), T(x, spec.tailY, tz + 0.025));
+    }
+  }
+
+  /* ---------------- roof rails, cladding, skid plates (crossover) ---------------- */
+  if (sig.roofRails) {
+    const tt = 0.5;
+    const ry = catmull(spec.profile.cabin.roof, tt);
+    const cz = (spec.profile.cabin.z0 + spec.profile.cabin.z1) * 0.5;
+    const len = (spec.profile.cabin.z1 - spec.profile.cabin.z0) * 0.78;
+    for (const sx of [-1, 1]) {
+      dark.append(geoRounded(0.07, 0.06, len, 0.03, 4), T(sx * bodyW * 0.36, ry + 0.05, cz));
+      for (const zz of [-0.34, 0.34])
+        dark.append(geoBox(0.05, 0.07, 0.08), T(sx * bodyW * 0.36, ry + 0.01, cz + len * zz));
+    }
+    for (const zz of [-0.22, 0.18])
+      dark.append(geoBox(bodyW * 0.70, 0.045, 0.08), T(0, ry + 0.055, cz + len * zz));
+    // roof light bar
+    lightF.append(geoBox(bodyW * 0.52, 0.06, 0.07), T(0, ry + 0.09, cz + len * 0.42));
+  }
+  if (sig.cladding) {
+    for (const [z, tr] of [[spec.axleF, spec.trackF], [spec.axleR, spec.trackR]])
+      for (const sx of [-1, 1])
+        dark.append(geoArch3(spec.wheelR * 1.20, spec.wheelW * 0.5 + 0.085, 0.055, 0.06 * PI, 0.94 * PI, 18, 0.25),
+          T(sx * tr, spec.wheelR, z));
+    for (const sx of [-1, 1])
+      dark.append(geoBox(0.09, 0.16, L * 0.44), T(sx * (bodyW * 0.5 - 0.005), catmull(spec.profile.sill, 0.5) + 0.06, 0));
+    // side steps
+    for (const sx of [-1, 1])
+      dark.append(geoRounded(0.16, 0.07, L * 0.34, 0.03, 4), T(sx * (bodyW * 0.5 + 0.04), catmull(spec.profile.sill, 0.5) - 0.02, 0));
+  }
+  if (sig.skidPlates) {
+    chrome.append(geoRounded(W * 0.52, 0.05, 0.34, 0.03, 4), T(0, catmull(spec.profile.sill, 0.94) + 0.03, L * 0.5 - 0.30));
+    chrome.append(geoRounded(W * 0.50, 0.05, 0.30, 0.03, 4), T(0, catmull(spec.profile.sill, 0.06) + 0.03, -L * 0.5 + 0.28));
+  }
+  if (sig.spareWheel) {
+    const tz = -L * 0.5 + 0.06;
+    const rotY = () => { const r = M4.n(); r[0] = 0; r[2] = -1; r[8] = 1; r[10] = 0; return r; };
+    // sits flush on the tailgate rather than floating behind it
+    dark.append(geoLatheX([[0.185, -0.075], [0.29, -0.085], [0.29, 0.055], [0.185, 0.045]], 22, true),
+      M4.mul(M4.n(), T(0, spec.tailY + 0.06, tz), rotY()));
+    chrome.append(geoLatheX([[0.055, 0.05], [0.10, 0.055], [0.10, 0.07]], 16, true),
+      M4.mul(M4.n(), T(0, spec.tailY + 0.06, tz), rotY()));
+  }
+
+  /* ---------------- swan-neck wing, canards, tow hook (track) ---------------- */
+  if (sig.swanWing && spec.wing) {
+    const wz = -L * 0.5 + spec.wing.z, wy = spec.wing.y + 0.10;
+    for (const sx of [-1, 1]) {
+      // the mount arcs over the top of the aerofoil
+      dark.append(geoBox(0.05, spec.wing.h * 1.25, 0.10), T(sx * W * 0.34, wy - spec.wing.h * 0.62, wz + 0.16));
+      dark.append(geoBox(0.05, 0.09, 0.34), RX(sx * W * 0.34, wy + 0.02, wz + 0.02, -0.55));
+    }
+    paint.append(geoBox(W * 0.98, 0.045, spec.wing.chord * 1.1), T(0, wy, wz));
+    paint.append(geoBox(W * 0.98, 0.05, 0.03), T(0, wy + 0.046, wz - spec.wing.chord * 0.55));
+    for (const sx of [-1, 1])
+      dark.append(geoBox(0.022, 0.20, spec.wing.chord * 1.2), T(sx * W * 0.49, wy + 0.06, wz));
+  }
+  if (sig.canards) {
+    for (const sx of [-1, 1]) for (let i = 0; i < 2; i++)
+      dark.append(geoBox(0.20, 0.018, 0.13), RX(sx * (W * 0.42), spec.grilleY + 0.02 + i * 0.10, L * 0.5 - 0.26, 0.18));
+  }
+  if (sig.towHook) {
+    lightR.append(geoLatheX([[0.05, 0], [0.055, 0.10]], 12, true),
+      M4.mul(M4.n(), T(W * 0.30, spec.tailY - 0.24, -L * 0.5 + 0.02), (() => { const r = M4.n(); r[5] = 0; r[6] = -1; r[9] = 1; r[10] = 0; return r; })()));
+  }
+  if (sig.bonnetPins) {
+    const hz = lerp(spec.axleF, L * 0.5, 0.62);
+    const hy = belt((hz + L / 2) / L);
+    for (const sx of [-1, 1])
+      chrome.append(geoLatheX([[0.030, 0], [0.034, 0.014]], 10, true), T(sx * bodyW * 0.36, hy + 0.012, hz));
+  }
+  if (sig.roofScoop && !sig.midEngine) {
+    const tt = 0.30;
+    const ry = catmull(spec.profile.cabin.roof, tt);
+    const rz = lerp(spec.profile.cabin.z0, spec.profile.cabin.z1, tt);
+    dark.append(geoRounded(0.26, 0.14, 0.46, 0.05, 5), T(0, ry + 0.02, rz));
+    dark.append(geoBox(0.20, 0.11, 0.05), T(0, ry + 0.04, rz + 0.23));
+  }
 }
 
 </script>
@@ -3038,6 +3332,17 @@ function loftBand(stations, i0, i1, push) {
 const CAR_SECT = 24; // outline points per station
 /* profile arrays are authored nose-first; station params run tail->nose */
 const pf = (arr, t) => catmull(arr, 1 - clamp01(t));
+
+function bodyStationAt(spec, t, bodyW) {
+  const P = spec.profile, L = spec.len;
+  const z = lerp(-L / 2, L / 2, t);
+  const hw = pf(P.width, t) * spec.width * .5;
+  const yb = pf(P.sill, t), yt = pf(P.belt, t);
+  const cy = (yb + yt) * .5, b = Math.max((yt - yb) * .5, .015);
+  const pts = squircle(Math.max(hw, .02), b, pf(P.round, t), CAR_SECT, pf(P.taperT, t), pf(P.taperB, t));
+  for (const q of pts) q[1] += cy;
+  return { z, pts, cy };
+}
 
 function bodyStations(spec, n, bodyW) {
   const P = spec.profile, L = spec.len, out = [];
@@ -3145,7 +3450,7 @@ function buildCar(spec) {
     for (const sx of [-1, 1]) {
       const hw = spec.wheelW * .5 + flare;
       // inner fender liner, kept narrower than the tyre so it hides behind it
-      dark.append(geoArch3(r * 1.04, spec.wheelW * .5 - .02, .13, 0.06 * PI, 0.94 * PI, 14),
+      dark.append(geoArch3(r * 1.01, spec.wheelW * .5 - .055, .085, 0.10 * PI, 0.90 * PI, 14),
         T(sx * track, r, z));
       // painted flare arching over the top
       paint.append(geoArch3(r * 1.17, hw, .07, 0.08 * PI, 0.92 * PI, 20, .30),
@@ -3291,21 +3596,35 @@ function buildCar(spec) {
     }
   }
 
+  /* ---------------- optional racing stripe ---------------- */
+  const stripe = new Geo();
+  {
+    const w = Math.max(2, Math.round(CAR_SECT * 0.055));
+    const q2 = CAR_SECT / 4;
+    stripe.append(loftBand(bs, q2 - w, q2 + w, 0.010), I);
+    stripe.append(loftBand(cs, q2 - w, q2 + w, 0.020), I);
+  }
+
+  /* ---------------- per-model signature bodywork ---------------- */
+  addDetail(spec, { paint, dark, glass, chrome, lightF, lightR, brake },
+    { T, RX, L, W, bodyW, belt });
+
   /* ---------------- wheels ---------------- */
   const R = spec.wheelR, WW = spec.wheelW;
   const tire = geoTyre(R, WW);
   const rim = geoRim(R, WW, spec.spokes || 5, spec.rimStyle || 'split');
-  const rimR = R * .635;
+  const rimR = R * .575;
   const disc = geoLatheX([[rimR * .32, -.020], [rimR * .90, -.020], [rimR * .90, .020], [rimR * .32, .020]], 24, true);
   const caliperG = new Geo();
   caliperG.append(geoRounded(.06, rimR * .90, rimR * .34, .02, 4), T(-.05, rimR * .55, 0));
 
-  for (const g of [paint, dark, glass, chrome, lightF, lightR, brake]) shiftGeo(g, -SAG);
+  for (const g of [paint, dark, glass, chrome, lightF, lightR, brake, stripe]) shiftGeo(g, -SAG);
 
   return {
     spec,
     paint: paint.done(), dark: dark.done(), glass: glass.done(), chrome: chrome.done(),
     lightF: lightF.done(), lightR: lightR.done(), brakeL: brake.done(),
+    stripe: stripe.done(),
     tire: tire.done(), rim: rim.done(), disc: disc.done(), caliper: caliperG.done()
   };
 }
@@ -3321,6 +3640,7 @@ const CAR_SPECS = [
     grilleY: .44, lightY: .68, lampW: .30, tailY: .76, tailBar: 1, deckY: .96,
     axleF: 1.42, axleR: -1.36, trackF: .82, trackR: .86,
     wing: { z: .34, y: 1.02, chord: .30, h: .20, gurney: 1 },
+    sig: { midEngine: 1, roofScoop: 0, canards: 1 },
     profile: {
       width: [.66, .92, 1.00, 1.00, 1.00, .96, .78],
       sill:  [.26, .14, .11, .11, .11, .15, .28],
@@ -3340,6 +3660,7 @@ const CAR_SPECS = [
     grilleY: .50, lightY: .76, lampW: .26, tailY: .84, tailBar: 0, deckY: 1.02,
     axleF: 1.48, axleR: -1.42, trackF: .80, trackR: .82,
     ducktail: { y: .98, z: .30 },
+    sig: { chromeTrim: 1, roundTails: 1, fourDoor: 0 },
     profile: {
       width: [.66, .93, 1.00, 1.00, .99, .95, .78],
       sill:  [.28, .16, .13, .13, .13, .17, .30],
@@ -3359,6 +3680,7 @@ const CAR_SPECS = [
     grilleY: .58, lightY: .84, lampW: .24, tailY: .90, tailBar: 1, deckY: 1.08,
     axleF: 1.52, axleR: -1.48, trackF: .82, trackR: .85,
     ducktail: { y: 1.06, z: .28 },
+    sig: { quadLamps: 1, hoodScoop: 1, sideExhaust: 1, bonnetPins: 1 },
     profile: {
       width: [.70, .95, 1.00, 1.00, 1.00, .96, .82],
       sill:  [.30, .19, .16, .16, .16, .20, .32],
@@ -3373,14 +3695,15 @@ const CAR_SPECS = [
   },
   {
     id: 'nomad', price: 62000, name: 'Nomad XR', cls: 'Crossover',
-    len: 4.72, width: 1.96, bodyW: .91, wheelR: .40, wheelW: .30, spokes: 7, rimStyle: 'split', rhd: 1,
+    len: 4.72, width: 1.96, bodyW: .91, wheelR: .45, wheelW: .32, spokes: 7, rimStyle: 'split', rhd: 1,
     flareF: .055, flareR: .075, cage: 0, cpillar: 1, quadPipes: 0,
-    grilleY: .80, lightY: 1.04, lampW: .26, tailY: 1.14, tailBar: 0, deckY: 1.50,
+    grilleY: .84, lightY: 1.06, lampW: .26, tailY: 1.16, tailBar: 0, deckY: 1.50,
     axleF: 1.42, axleR: -1.40, trackF: .80, trackR: .81,
+    sig: { roofRails: 1, cladding: 1, skidPlates: 1, spareWheel: 1, fourDoor: 1 },
     profile: {
       width: [.72, .95, 1.00, 1.00, 1.00, .97, .84],
-      sill:  [.42, .32, .29, .29, .29, .33, .44],
-      belt:  [.98, 1.12, 1.22, 1.26, 1.28, 1.26, 1.16],
+      sill:  [.54, .46, .44, .44, .44, .47, .56],
+      belt:  [1.02, 1.14, 1.22, 1.26, 1.28, 1.26, 1.18],
       round: [3.6, 4.1, 4.7, 5.0, 4.8, 4.4, 3.8],
       taperT:[.20, .12, .08, .06, .06, .10, .20],
       taperB:[.22, .14, .10, .08, .10, .14, .24],
@@ -3396,6 +3719,7 @@ const CAR_SPECS = [
     grilleY: .38, lightY: .60, lampW: .26, tailY: .70, tailBar: 1, deckY: .90,
     axleF: 1.46, axleR: -1.40, trackF: .86, trackR: .90,
     wing: { z: .20, y: 1.14, chord: .36, h: .34, gurney: 1 },
+    sig: { swanWing: 1, canards: 1, towHook: 1, bonnetPins: 1, roofScoop: 1 },
     profile: {
       width: [.68, .95, 1.00, 1.00, 1.00, .98, .84],
       sill:  [.22, .10, .08, .08, .08, .12, .24],
@@ -5815,6 +6139,21 @@ const PARTS = {
 
 const PART_ORDER = ['forced', 'intake', 'exhaust', 'ecu', 'cooling', 'gearbox', 'clutch', 'diff', 'drivetrain', 'tyres', 'susp', 'brakes', 'weight', 'aero', 'nitrous'];
 
+/* rim finishes and caliper colours are cosmetic, priced in the shop */
+const RIM_FINISH = [
+  [.30, .31, .33, .34, 1],    // anthracite
+  [.72, .74, .78, .13, 1],    // polished
+  [.055, .057, .06, .40, 1],  // satin black
+  [.62, .50, .18, .22, 1],    // bronze
+  [.78, .78, .80, .55, .2],   // white
+];
+const RIM_FINISH_NAMES = ['Anthracite', 'Polished', 'Satin Black', 'Bronze', 'Gloss White'];
+const CALIPER_COLS = [
+  [.55, .06, .05], [.06, .06, .07], [.75, .55, .04],
+  [.06, .30, .60], [.10, .45, .16], [.62, .62, .64],
+];
+const CALIPER_NAMES = ['Red', 'Black', 'Gold', 'Blue', 'Green', 'Silver'];
+
 const RIMS = [
   { n: 'Split 5', spokes: 5, cost: 0 },
   { n: 'Mesh 10', spokes: 10, cost: 1800 },
@@ -5836,7 +6175,7 @@ const Garage = {
 
   defaults(id) {
     const p = {}; for (const k of PART_ORDER) p[k] = 0;
-    return { parts: p, engine: 'stock', paint: 1, finish: 0, rim: 0, tint: 0.72 };
+    return { parts: p, engine: 'stock', paint: 1, finish: 0, rim: 0, rimFinish: 0, caliper: 0, stripe: -1, tint: 0.72 };
   },
   load() {
     try {
@@ -6889,6 +7228,15 @@ const HUD = {
       c.fillRect(dx * k - 1.6, dz * k - 1.6, 3.2, 3.2);
     }
 
+    if (MapView.waypoint) {
+      const dx = MapView.waypoint.x - px, dz = MapView.waypoint.z - pz;
+      const cl = Math.hypot(dx, dz) * k > half - 12;
+      const a = Math.atan2(dz, dx);
+      const wx = cl ? Math.cos(a) * (half - 12) : dx * k;
+      const wy = cl ? Math.sin(a) * (half - 12) : dz * k;
+      c.beginPath(); c.arc(wx, wy, cl ? 4 : 5.5, 0, TAU);
+      c.fillStyle = '#ffcf6b'; c.shadowColor = '#ffcf6b'; c.shadowBlur = 8; c.fill(); c.shadowBlur = 0;
+    }
     if (g.route && g.route.length) {
       for (let i = g.cpIndex; i < Math.min(g.cpIndex + 3, g.route.length); i++) {
         const cpn = g.route[i];
@@ -7090,8 +7438,11 @@ const Shop = {
 
   renderVisual() {
     const g = Garage.car();
-    let h = '<h3>Paint</h3><div class="swatches" id="swatches">';
+    let h = '<h3>Body colour</h3><div class="swatches" id="swatches">';
     PAINTS.forEach((p, i) => h += `<div class="sw${i === g.paint ? ' on' : ''}" data-i="${i}" style="background:${p.c}" title="${p.n}"></div>`);
+    h += '</div><h3>Racing stripe</h3><div class="swatches" id="stripes">';
+    h += `<div class="sw none${(g.stripe | 0) < 0 ? ' on' : ''}" data-s="-1" title="None">✕</div>`;
+    PAINTS.forEach((p, i) => h += `<div class="sw${g.stripe === i ? ' on' : ''}" data-s="${i}" style="background:${p.c}" title="${p.n}"></div>`);
     h += '</div><h3>Finish</h3>';
     ['Gloss', 'Metallic', 'Matte', 'Chrome'].forEach((n, i) => {
       h += this.card({ idx: i, tier: i === g.finish ? '✓' : i, name: n, sub: 'Clear coat', price: 0, state: i === g.finish ? 'on' : '' });
@@ -7100,20 +7451,40 @@ const Shop = {
     RIMS.forEach((r, i) => {
       h += this.card({ idx: 100 + i, tier: i === g.rim ? '✓' : i, name: r.n, sub: r.spokes + ' spoke', price: i === g.rim ? 0 : r.cost, state: i === g.rim ? 'on' : '' });
     });
+    h += '<h3>Wheel finish</h3>';
+    RIM_FINISH_NAMES.forEach((n, i) => {
+      h += this.card({ idx: 200 + i, tier: i === (g.rimFinish | 0) ? '✓' : i, name: n, sub: 'Powder coat', price: i === (g.rimFinish | 0) ? 0 : 900, state: i === (g.rimFinish | 0) ? 'on' : '' });
+    });
+    h += '<h3>Brake calipers</h3>';
+    CALIPER_NAMES.forEach((n, i) => {
+      h += this.card({ idx: 300 + i, tier: i === (g.caliper | 0) ? '✓' : i, name: n, sub: 'Caliper paint', price: i === (g.caliper | 0) ? 0 : 450, state: i === (g.caliper | 0) ? 'on' : '' });
+    });
     this.el.list.innerHTML = h;
-    this.el.list.querySelectorAll('.sw').forEach(s => s.onclick = () => {
-      Garage.car().paint = +s.dataset.i; Garage.save(); Audio2.ui('tick'); this.render();
+
+    this.el.list.querySelectorAll('#swatches .sw').forEach(sw => sw.onclick = () => {
+      Garage.car().paint = +sw.dataset.i; Garage.save(); Audio2.ui('tick'); this.render();
+    });
+    this.el.list.querySelectorAll('#stripes .sw').forEach(sw => sw.onclick = () => {
+      Garage.car().stripe = +sw.dataset.s; Garage.save(); Audio2.ui('tick'); this.render();
     });
     this.bindItems((i) => {
       const g2 = Garage.car();
-      if (i >= 100) {
+      if (i >= 300) { this.buy(450, () => g2.caliper = i - 300); }
+      else if (i >= 200) { this.buy(900, () => g2.rimFinish = i - 200); }
+      else if (i >= 100) {
         const r = RIMS[i - 100];
-        if (r.cost && !Garage.canAfford(r.cost) && g2.rim !== i - 100) { Audio2.ui('deny'); return; }
-        if (r.cost && g2.rim !== i - 100) Garage.add(-r.cost);
-        g2.rim = i - 100; Game.applyCar();
-      } else g2.finish = i;
-      Garage.save(); Audio2.ui('tick'); this.render();
+        if (g2.rim === i - 100) return;
+        this.buy(r.cost, () => { g2.rim = i - 100; Game.applyCar(); });
+      } else { g2.finish = i; Garage.save(); Audio2.ui('tick'); }
+      this.render();
     });
+  },
+
+  buy(cost, apply) {
+    if (cost && !Garage.canAfford(cost)) { Audio2.ui('deny'); Game.toast('Not enough cash', 'bad'); return false; }
+    if (cost) Garage.add(-cost);
+    apply(); Garage.save(); Audio2.ui(cost ? 'buy' : 'tick');
+    return true;
   },
 
   bindItems(onClick, onHover) {
@@ -7632,6 +8003,329 @@ const Controls = {
 
 </script>
 <script>
+/* ===== 97_map.js ===== */
+'use strict';
+/* ============================================================
+   Apex Drive — full-screen city map + waypoints
+   ============================================================ */
+
+const MapView = {
+  open: false, cv: null, ctx: null,
+  cx: 0, cz: 0, zoom: 0.35, minZoom: 0.12, maxZoom: 2.4,
+  drag: false, moved: 0, lx: 0, ly: 0,
+  waypoint: null,
+  _blockAt: null,
+
+  init() {
+    this.cv = $('bigmap');
+    this.ctx = this.cv.getContext('2d');
+    $('mapbtn').onclick = () => { Audio2.ui('tick'); this.toggle(); };
+    $('mapclose').onclick = () => this.close();
+    $('mapgo').onclick = () => this.close();
+    $('mapclear').onclick = () => { this.waypoint = null; Audio2.ui('tick'); this.draw(); };
+    $('mapcentre').onclick = () => { this.centre(); Audio2.ui('tick'); this.draw(); };
+
+    const cv = this.cv;
+    const pt = e => {
+      const r = cv.getBoundingClientRect();
+      const t = e.touches ? e.touches[0] : e;
+      return [t.clientX - r.left, t.clientY - r.top];
+    };
+    const down = e => {
+      const [x, y] = pt(e);
+      this.drag = true; this.moved = 0; this.lx = x; this.ly = y;
+      e.preventDefault();
+    };
+    const move = e => {
+      if (!this.drag) return;
+      const [x, y] = pt(e);
+      const dx = x - this.lx, dy = y - this.ly;
+      this.moved += Math.abs(dx) + Math.abs(dy);
+      this.cx -= dx / this.zoom; this.cz -= dy / this.zoom;
+      this.lx = x; this.ly = y;
+      this.clampCentre(); this.draw();
+      e.preventDefault();
+    };
+    const up = e => {
+      if (this.drag && this.moved < 5) {
+        const [x, y] = pt(e.changedTouches ? { touches: e.changedTouches } : e);
+        this.setWaypointFromScreen(x, y);
+      }
+      this.drag = false;
+    };
+    cv.addEventListener('mousedown', down);
+    addEventListener('mousemove', move);
+    addEventListener('mouseup', up);
+    cv.addEventListener('touchstart', down, { passive: false });
+    cv.addEventListener('touchmove', move, { passive: false });
+    cv.addEventListener('touchend', up);
+    cv.addEventListener('wheel', e => {
+      const [x, y] = pt(e);
+      const before = this.screenToWorld(x, y);
+      this.zoom = clamp(this.zoom * (e.deltaY < 0 ? 1.16 : 1 / 1.16), this.minZoom, this.maxZoom);
+      const after = this.screenToWorld(x, y);
+      this.cx += before[0] - after[0]; this.cz += before[1] - after[1];
+      this.clampCentre(); this.draw();
+      e.preventDefault();
+    }, { passive: false });
+
+    // pinch to zoom
+    let pinch = 0;
+    cv.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) {
+        pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY);
+        this.drag = false;
+      }
+    }, { passive: false });
+    cv.addEventListener('touchmove', e => {
+      if (e.touches.length === 2 && pinch) {
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY);
+        this.zoom = clamp(this.zoom * (d / pinch), this.minZoom, this.maxZoom);
+        pinch = d; this.clampCentre(); this.draw();
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    this.buildBlockLookup();
+  },
+
+  /* block type per cell so the map can colour districts */
+  buildBlockLookup() {
+    const N = World.N;
+    this._blockAt = new Array(N * N).fill('build');
+    for (const b of World.blockInfo) {
+      const i = Math.round((b.bx + World.half - World.CELL * .5) / World.CELL);
+      const j = Math.round((b.bz + World.half - World.CELL * .5) / World.CELL);
+      if (i >= 0 && j >= 0 && i < N && j < N) this._blockAt[j * N + i] = b.type;
+    }
+  },
+
+  toggle() { this.open ? this.close() : this.show(); },
+
+  show() {
+    if (Game.state !== 'play') return;
+    this.open = true;
+    this.fit();
+    this.centre();
+    // open showing roughly 900 m across, like a satnav rather than a world map
+    this.zoom = clamp(Math.min(this.cv.width, this.cv.height) / 900, this.minZoom, this.maxZoom);
+    $('mapscreen').classList.remove('hidden');
+    this.draw();
+  },
+  close() {
+    this.open = false;
+    $('mapscreen').classList.add('hidden');
+  },
+
+  fit() {
+    const wrap = this.cv.parentElement;
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    this.cv.width = Math.max(2, Math.round(wrap.clientWidth * dpr));
+    this.cv.height = Math.max(2, Math.round(wrap.clientHeight * dpr));
+    this.cv.style.width = wrap.clientWidth + 'px';
+    this.cv.style.height = wrap.clientHeight + 'px';
+    this.dpr = dpr;
+    this.minZoom = Math.min(this.cv.width, this.cv.height) / (World.size * 1.5);
+  },
+  centre() {
+    const p = Game.player;
+    this.cx = p.pos[0]; this.cz = p.pos[2];
+  },
+  clampCentre() {
+    const lim = World.half + 200;
+    this.cx = clamp(this.cx, -lim, lim);
+    this.cz = clamp(this.cz, -lim, lim);
+  },
+
+  worldToScreen(x, z) {
+    return [(x - this.cx) * this.zoom + this.cv.width / 2,
+    (z - this.cz) * this.zoom + this.cv.height / 2];
+  },
+  screenToWorld(sx, sy) {
+    const d = this.dpr || 1;
+    return [(sx * d - this.cv.width / 2) / this.zoom + this.cx,
+    (sy * d - this.cv.height / 2) / this.zoom + this.cz];
+  },
+
+  setWaypointFromScreen(sx, sy) {
+    const [x, z] = this.screenToWorld(sx, sy);
+    const lim = World.half + 60;
+    if (Math.abs(x) > lim || Math.abs(z) > lim) return;
+    this.waypoint = { x, z };
+    Audio2.ui('ok');
+    Game.toast('Waypoint set', 'good');
+    this.draw();
+  },
+
+  /* ---------------- drawing ---------------- */
+  draw() {
+    if (!this.open) return;
+    const c = this.ctx, W = this.cv.width, H = this.cv.height, z = this.zoom;
+    const N = World.N, C = World.CELL, B = World.BLOCK, half = World.half, R = World.ROAD;
+
+    c.fillStyle = '#070b12'; c.fillRect(0, 0, W, H);
+
+    // ground beyond the grid
+    const g0 = this.worldToScreen(-half - 260, -half - 260);
+    const g1 = this.worldToScreen(half + 260, half + 260);
+    c.fillStyle = '#0b1410';
+    c.fillRect(g0[0], g0[1], g1[0] - g0[0], g1[1] - g0[1]);
+
+    // city footprint
+    const c0 = this.worldToScreen(-half, -half), c1 = this.worldToScreen(half, half);
+    c.fillStyle = '#0d131c';
+    c.fillRect(c0[0], c0[1], c1[0] - c0[0], c1[1] - c0[1]);
+
+    const TYPE_COL = {
+      build: '#2a3a4d', low: '#2f3a44', park: '#24402c',
+      lot: '#3a3320', plaza: '#3d2b3a'
+    };
+
+    // blocks, only the ones on screen
+    const pad = 60;
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        const bx = -half + i * C + C * .5, bz = -half + j * C + C * .5;
+        const p = this.worldToScreen(bx - B / 2, bz - B / 2);
+        const s = B * z;
+        if (p[0] + s < -pad || p[1] + s < -pad || p[0] > W + pad || p[1] > H + pad) continue;
+        c.fillStyle = TYPE_COL[this._blockAt[j * N + i]] || TYPE_COL.build;
+        c.fillRect(p[0], p[1], s, s);
+      }
+    }
+
+    // roads
+    c.strokeStyle = '#18222e';
+    c.lineWidth = Math.max(1, R * z);
+    c.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const rx = World.roadX(i);
+      const a = this.worldToScreen(rx, -half), b = this.worldToScreen(rx, half);
+      if (a[0] < -pad || a[0] > W + pad) continue;
+      c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]);
+    }
+    for (let j = 0; j <= N; j++) {
+      const rz = World.roadX(j);
+      const a = this.worldToScreen(-half, rz), b = this.worldToScreen(half, rz);
+      if (a[1] < -pad || a[1] > H + pad) continue;
+      c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]);
+    }
+    c.stroke();
+
+    // centre lines on the wider roads when zoomed in
+    if (z > 0.55) {
+      c.strokeStyle = 'rgba(200,170,70,.28)';
+      c.lineWidth = Math.max(0.7, z * 0.35);
+      c.setLineDash([z * 6, z * 8]);
+      c.beginPath();
+      for (let i = 0; i <= N; i++) {
+        const rx = World.roadX(i);
+        const a = this.worldToScreen(rx, -half), b = this.worldToScreen(rx, half);
+        if (a[0] < -pad || a[0] > W + pad) continue;
+        c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]);
+      }
+      for (let j = 0; j <= N; j++) {
+        const rz = World.roadX(j);
+        const a = this.worldToScreen(-half, rz), b = this.worldToScreen(half, rz);
+        if (a[1] < -pad || a[1] > H + pad) continue;
+        c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]);
+      }
+      c.stroke();
+      c.setLineDash([]);
+    }
+
+    // traffic
+    if (z > 0.2) {
+      c.fillStyle = 'rgba(190,210,232,.42)';
+      const s = Math.max(1.5, z * 3);
+      for (const t of Traffic.cars) {
+        const p = this.worldToScreen(t.x, t.z);
+        if (p[0] < 0 || p[1] < 0 || p[0] > W || p[1] > H) continue;
+        c.fillRect(p[0] - s / 2, p[1] - s / 2, s, s);
+      }
+    }
+
+    // route
+    if (Game.route && Game.route.length) {
+      c.strokeStyle = 'rgba(255,61,104,.45)';
+      c.lineWidth = 2 * this.dpr;
+      c.setLineDash([6 * this.dpr, 6 * this.dpr]);
+      c.beginPath();
+      for (let i = Game.cpIndex; i < Game.route.length; i++) {
+        const p = this.worldToScreen(Game.route[i].x, Game.route[i].z);
+        i === Game.cpIndex ? c.moveTo(p[0], p[1]) : c.lineTo(p[0], p[1]);
+      }
+      c.stroke(); c.setLineDash([]);
+      for (let i = Game.cpIndex; i < Game.route.length; i++) {
+        const p = this.worldToScreen(Game.route[i].x, Game.route[i].z);
+        const active = i === Game.cpIndex;
+        c.beginPath(); c.arc(p[0], p[1], (active ? 8 : 5) * this.dpr, 0, TAU);
+        c.fillStyle = active ? '#ff3d68' : 'rgba(255,61,104,.5)';
+        c.fill();
+        if (active) { c.strokeStyle = '#fff'; c.lineWidth = 2 * this.dpr; c.stroke(); }
+      }
+    }
+
+    // waypoint
+    if (this.waypoint) this.pin(c, this.worldToScreen(this.waypoint.x, this.waypoint.z), '#ffcf6b');
+
+    // player
+    const p = Game.player;
+    const sp = this.worldToScreen(p.pos[0], p.pos[2]);
+    const fwd = [0, 0, 0]; p.dirWorld(fwd, [0, 0, 1]);
+    const yaw = Math.atan2(fwd[0], fwd[2]);
+    c.save();
+    c.translate(sp[0], sp[1]); c.rotate(-yaw);
+    const k = 9 * this.dpr;
+    c.beginPath();
+    c.moveTo(0, -k); c.lineTo(k * .72, k * .82); c.lineTo(0, k * .42); c.lineTo(-k * .72, k * .82);
+    c.closePath();
+    c.fillStyle = '#22e3ff'; c.shadowColor = '#22e3ff'; c.shadowBlur = 14 * this.dpr;
+    c.fill();
+    c.restore();
+
+    // scale bar
+    const barM = z > 0.9 ? 50 : z > 0.35 ? 100 : 250;
+    const barPx = barM * z;
+    const bx0 = 18 * this.dpr, by0 = H - 20 * this.dpr;
+    c.strokeStyle = 'rgba(220,235,250,.6)'; c.lineWidth = 1.5 * this.dpr;
+    c.beginPath();
+    c.moveTo(bx0, by0 - 5 * this.dpr); c.lineTo(bx0, by0); c.lineTo(bx0 + barPx, by0);
+    c.lineTo(bx0 + barPx, by0 - 5 * this.dpr);
+    c.stroke();
+    c.fillStyle = 'rgba(220,235,250,.75)';
+    c.font = (11 * this.dpr) + 'px Rajdhani, sans-serif';
+    c.fillText(barM + ' m', bx0 + barPx + 7 * this.dpr, by0);
+  },
+
+  pin(c, p, col) {
+    const d = this.dpr, r = 6 * d;
+    c.beginPath();
+    c.moveTo(p[0], p[1]);
+    c.lineTo(p[0] - r, p[1] - r * 1.9);
+    c.arc(p[0], p[1] - r * 2.3, r, PI * 0.82, PI * 0.18, true);
+    c.closePath();
+    c.fillStyle = col; c.shadowColor = col; c.shadowBlur = 10 * d; c.fill();
+    c.shadowBlur = 0;
+    c.beginPath(); c.arc(p[0], p[1] - r * 2.3, r * .42, 0, TAU);
+    c.fillStyle = '#0a0f16'; c.fill();
+  },
+
+  /* distance + bearing to the waypoint for the HUD */
+  guidance() {
+    if (!this.waypoint) return null;
+    const p = Game.player;
+    const dx = this.waypoint.x - p.pos[0], dz = this.waypoint.z - p.pos[2];
+    const dist = Math.hypot(dx, dz);
+    if (dist < 14) { this.waypoint = null; Game.toast('Waypoint reached', 'good'); Audio2.checkpoint(); return null; }
+    return { dist, bearing: Math.atan2(dx, dz) };
+  }
+};
+
+</script>
+<script>
 /* ===== 99_main.js ===== */
 'use strict';
 /* ============================================================
@@ -7800,6 +8494,7 @@ const Game = {
     this.todNow = this.settings.tod;
     HUD.init();
     Shop.init();
+    MapView.init();
     this.bindUI();
     Input.init();
     this.applyCar();
@@ -7823,7 +8518,7 @@ const Game = {
 
   prepModel(m) {
     const o = { spec: m.spec };
-    for (const k of ['paint', 'dark', 'glass', 'chrome', 'lightF', 'lightR', 'brakeL', 'tire', 'rim', 'disc', 'caliper'])
+    for (const k of ['paint', 'dark', 'glass', 'chrome', 'lightF', 'lightR', 'brakeL', 'stripe', 'tire', 'rim', 'disc', 'caliper'])
       o[k] = buildMesh(m[k]);
     return o;
   },
@@ -7859,7 +8554,7 @@ const Game = {
     this.player.manual = this.settings.manual;
 
     this.carBatches = {};
-    for (const k of ['paint', 'dark', 'chrome', 'lightF', 'lightR', 'brakeL', 'tire', 'rim', 'disc', 'caliper'])
+    for (const k of ['paint', 'dark', 'chrome', 'lightF', 'lightR', 'brakeL', 'stripe', 'tire', 'rim', 'disc', 'caliper'])
       this.carBatches[k] = new Batch(m[k], 8, true);
     this.carGlass = new Batch(m.glass, 8, true);
 
@@ -7973,7 +8668,7 @@ const Game = {
     // mobile browsers fire resize every time the address bar slides; each one
     // used to reallocate the entire render target set
     let rzT = 0;
-    addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => R.resize(), 180); });
+    addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => { R.resize(); if (MapView.open) { MapView.fit(); MapView.draw(); } }, 180); });
 
     GLX.onLost = () => {
       _running = false;
@@ -8113,7 +8808,9 @@ const Game = {
 
   onKey(code, e) {
     if (code === 'KeyP') { this.togglePhoto(); return; }
+    if (code === 'KeyM') { MapView.toggle(); return; }
     if (code === 'Escape') {
+      if (MapView.open) { MapView.close(); return; }
       if (this.state === 'play') this.setPaused(!this.paused);
       else if (this.state === 'shop') this.closeShop();
       else if (this.state === 'settings') {
@@ -8202,7 +8899,7 @@ const Game = {
 
     Input.poll(dt, S.steerRate);
     const p = this.player;
-    const playing = this.state === 'play' && !this.paused && !this.photo;
+    const playing = this.state === 'play' && !this.paused && !this.photo && !MapView.open;
 
     const inp = playing
       ? { steer: Input.steer, throttle: Input.throttle, brake: Input.brake }
@@ -8275,6 +8972,17 @@ const Game = {
     this.updateEffects(dt);
     this.updateCamera(dt, playing);
     this.updateMode(dt, playing);
+
+    const wp = MapView.guidance();
+    const wl = $('wayline');
+    if (wp) {
+      wl.classList.remove('hidden');
+      $('waydist').textContent = wp.dist > 950
+        ? (wp.dist / 1000).toFixed(1) + ' km' : Math.round(wp.dist) + ' m';
+      const rel = wrapPi(wp.bearing - this.camYaw);
+      $('wayline').firstElementChild.style.transform = 'rotate(' + rel.toFixed(3) + 'rad)';
+    } else wl.classList.add('hidden');
+    if (MapView.open) { this._mapT = (this._mapT || 0) + dt; if (this._mapT > 0.12) { this._mapT = 0; MapView.draw(); } }
 
     Audio2.updateEngine(p, dt, this.camMode === 2 ? 1.5 : this.camDist, R.wet > .5);
 
@@ -8668,6 +9376,11 @@ const Game = {
     const dk = 1 - dmg * .35;
     const B = this.carBatches;
     B.paint.push(m, pm.c[0] * dk, pm.c[1] * dk, pm.c[2] * dk, dr, pm.metal * (1 - dmg * .6), 0, M_PAINT, 0);
+    const st = Garage.car().stripe | 0;
+    if (st >= 0 && B.stripe) {
+      const sc = srgb2lin(hex2rgb(PAINTS[st % PAINTS.length].c));
+      B.stripe.push(m, sc[0] * dk, sc[1] * dk, sc[2] * dk, dr, pm.metal * (1 - dmg * .6), 0, M_PAINT, 0);
+    }
     B.dark.push(m, .075, .078, .085, .58, .05, 0, M_PLASTIC, 0);
     B.chrome.push(m, .82, .84, .88, .13, 1, 0, M_METAL, 0);
     const hl = p.headlights;
@@ -8758,10 +9471,12 @@ const Game = {
       wm[8] = st * cp2; wm[9] = -sp2; wm[10] = ct * cp2; wm[11] = 0;
       wm[12] = w.lp[0]; wm[13] = w.lp[1] - (w.rest - w.comp); wm[14] = w.lp[2]; wm[15] = 1;
       M4.mul(out, bodyM, wm);
-      B.tire.push(out, .04, .042, .045, .82, 0, 0, M_TIRE, 0);
-      B.rim.push(out, .72, .74, .78, .16, 1, 0, M_METAL, 0);
-      B.disc.push(out, .30, .30, .32, .30, 1, 0, M_METAL, 0);
-      B.caliper.push(out, .55, .06, .05, .35, .2, 0, M_PAINT, 0);
+      B.tire.push(out, .055, .057, .060, .86, 0, 0, M_TIRE, 0);
+      const rimc = RIM_FINISH[(Garage.car().rimFinish | 0) % RIM_FINISH.length];
+      B.rim.push(out, rimc[0], rimc[1], rimc[2], rimc[3], rimc[4], 0, M_METAL, 0);
+      B.disc.push(out, .26, .26, .275, .34, 1, 0, M_METAL, 0);
+      const cal = CALIPER_COLS[(Garage.car().caliper | 0) % CALIPER_COLS.length];
+      B.caliper.push(out, cal[0], cal[1], cal[2], .30, .25, 0, M_PAINT, 0);
     }
   },
 

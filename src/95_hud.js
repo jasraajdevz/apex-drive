@@ -170,6 +170,15 @@ const HUD = {
       c.fillRect(dx * k - 1.6, dz * k - 1.6, 3.2, 3.2);
     }
 
+    if (MapView.waypoint) {
+      const dx = MapView.waypoint.x - px, dz = MapView.waypoint.z - pz;
+      const cl = Math.hypot(dx, dz) * k > half - 12;
+      const a = Math.atan2(dz, dx);
+      const wx = cl ? Math.cos(a) * (half - 12) : dx * k;
+      const wy = cl ? Math.sin(a) * (half - 12) : dz * k;
+      c.beginPath(); c.arc(wx, wy, cl ? 4 : 5.5, 0, TAU);
+      c.fillStyle = '#ffcf6b'; c.shadowColor = '#ffcf6b'; c.shadowBlur = 8; c.fill(); c.shadowBlur = 0;
+    }
     if (g.route && g.route.length) {
       for (let i = g.cpIndex; i < Math.min(g.cpIndex + 3, g.route.length); i++) {
         const cpn = g.route[i];

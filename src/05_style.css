@@ -375,3 +375,44 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
   #touch .tc.gas{height:calc(74px*var(--tscale))}
   #touch .tc.brake{height:calc(74px*var(--tscale))}
 }
+
+/* ---------- map button + waypoint readout ---------- */
+#mapbtn{position:absolute;top:228px;right:22px;width:56px;height:52px;border-radius:12px;
+  background:rgba(9,14,22,.72);border:1px solid var(--line);color:var(--ink);cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  pointer-events:auto;backdrop-filter:blur(8px);transition:.15s}
+#mapbtn:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 0 18px rgba(34,227,255,.22)}
+#mapbtn span{font-size:8.5px;letter-spacing:2.2px;opacity:.75}
+#wayline{position:absolute;top:288px;right:22px;display:flex;align-items:center;gap:6px;
+  background:rgba(9,14,22,.72);border:1px solid rgba(255,207,107,.4);border-radius:10px;
+  padding:5px 10px;color:var(--warm)}
+#wayline i{font-style:normal;font-size:12px}
+#wayline b{font-size:14px;font-weight:700}
+
+/* ---------- full-screen map ---------- */
+#mapscreen{flex-direction:column;background:rgba(4,7,12,.96);backdrop-filter:blur(14px);z-index:30}
+.maphead{display:flex;align-items:center;gap:18px;padding:14px clamp(14px,3vw,30px);
+  border-bottom:1px solid var(--line)}
+.maptitle{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:700;letter-spacing:5px;color:var(--accent)}
+.maphint{font-size:11px;letter-spacing:1.6px;color:var(--dim)}
+.maphead .xbtn{margin-left:auto}
+.mapwrap{flex:1;min-height:0;position:relative;overflow:hidden}
+#bigmap{position:absolute;inset:0;display:block;cursor:crosshair;touch-action:none}
+.mapfoot{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:12px clamp(14px,3vw,30px);border-top:1px solid var(--line)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;letter-spacing:1.4px;color:var(--dim)}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend i{width:11px;height:11px;border-radius:3px;display:block}
+.mapacts{margin-left:auto;display:flex;gap:8px}
+.mapacts .btn{padding:9px 16px;font-size:11.5px}
+@media (max-width:900px){
+  #mapbtn{top:auto;bottom:96px;right:12px;width:48px;height:46px}
+  #wayline{top:130px;right:12px;padding:4px 8px}
+  .maphint{display:none}
+  .maptitle{font-size:14px;letter-spacing:3px}
+  .legend{font-size:9.5px;gap:9px}
+  .mapacts{margin-left:0;width:100%}
+  .mapacts .btn{flex:1}
+}
+.sw.none{display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--dim);
+  background:rgba(255,255,255,.06)}

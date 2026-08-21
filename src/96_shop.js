@@ -170,8 +170,11 @@ const Shop = {
 
   renderVisual() {
     const g = Garage.car();
-    let h = '<h3>Paint</h3><div class="swatches" id="swatches">';
+    let h = '<h3>Body colour</h3><div class="swatches" id="swatches">';
     PAINTS.forEach((p, i) => h += `<div class="sw${i === g.paint ? ' on' : ''}" data-i="${i}" style="background:${p.c}" title="${p.n}"></div>`);
+    h += '</div><h3>Racing stripe</h3><div class="swatches" id="stripes">';
+    h += `<div class="sw none${(g.stripe | 0) < 0 ? ' on' : ''}" data-s="-1" title="None">✕</div>`;
+    PAINTS.forEach((p, i) => h += `<div class="sw${g.stripe === i ? ' on' : ''}" data-s="${i}" style="background:${p.c}" title="${p.n}"></div>`);
     h += '</div><h3>Finish</h3>';
     ['Gloss', 'Metallic', 'Matte', 'Chrome'].forEach((n, i) => {
       h += this.card({ idx: i, tier: i === g.finish ? '✓' : i, name: n, sub: 'Clear coat', price: 0, state: i === g.finish ? 'on' : '' });
@@ -180,20 +183,40 @@ const Shop = {
     RIMS.forEach((r, i) => {
       h += this.card({ idx: 100 + i, tier: i === g.rim ? '✓' : i, name: r.n, sub: r.spokes + ' spoke', price: i === g.rim ? 0 : r.cost, state: i === g.rim ? 'on' : '' });
     });
+    h += '<h3>Wheel finish</h3>';
+    RIM_FINISH_NAMES.forEach((n, i) => {
+      h += this.card({ idx: 200 + i, tier: i === (g.rimFinish | 0) ? '✓' : i, name: n, sub: 'Powder coat', price: i === (g.rimFinish | 0) ? 0 : 900, state: i === (g.rimFinish | 0) ? 'on' : '' });
+    });
+    h += '<h3>Brake calipers</h3>';
+    CALIPER_NAMES.forEach((n, i) => {
+      h += this.card({ idx: 300 + i, tier: i === (g.caliper | 0) ? '✓' : i, name: n, sub: 'Caliper paint', price: i === (g.caliper | 0) ? 0 : 450, state: i === (g.caliper | 0) ? 'on' : '' });
+    });
     this.el.list.innerHTML = h;
-    this.el.list.querySelectorAll('.sw').forEach(s => s.onclick = () => {
-      Garage.car().paint = +s.dataset.i; Garage.save(); Audio2.ui('tick'); this.render();
+
+    this.el.list.querySelectorAll('#swatches .sw').forEach(sw => sw.onclick = () => {
+      Garage.car().paint = +sw.dataset.i; Garage.save(); Audio2.ui('tick'); this.render();
+    });
+    this.el.list.querySelectorAll('#stripes .sw').forEach(sw => sw.onclick = () => {
+      Garage.car().stripe = +sw.dataset.s; Garage.save(); Audio2.ui('tick'); this.render();
     });
     this.bindItems((i) => {
       const g2 = Garage.car();
-      if (i >= 100) {
+      if (i >= 300) { this.buy(450, () => g2.caliper = i - 300); }
+      else if (i >= 200) { this.buy(900, () => g2.rimFinish = i - 200); }
+      else if (i >= 100) {
         const r = RIMS[i - 100];
-        if (r.cost && !Garage.canAfford(r.cost) && g2.rim !== i - 100) { Audio2.ui('deny'); return; }
-        if (r.cost && g2.rim !== i - 100) Garage.add(-r.cost);
-        g2.rim = i - 100; Game.applyCar();
-      } else g2.finish = i;
-      Garage.save(); Audio2.ui('tick'); this.render();
+        if (g2.rim === i - 100) return;
+        this.buy(r.cost, () => { g2.rim = i - 100; Game.applyCar(); });
+      } else { g2.finish = i; Garage.save(); Audio2.ui('tick'); }
+      this.render();
     });
+  },
+
+  buy(cost, apply) {
+    if (cost && !Garage.canAfford(cost)) { Audio2.ui('deny'); Game.toast('Not enough cash', 'bad'); return false; }
+    if (cost) Garage.add(-cost);
+    apply(); Garage.save(); Audio2.ui(cost ? 'buy' : 'tick');
+    return true;
   },
 
   bindItems(onClick, onHover) {
