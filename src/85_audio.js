@@ -2,35 +2,137 @@
 /* ============================================================
    Apex Drive — audio engine
 
-   The engine note is NOT an oscillator drone. Each cylinder's
-   combustion event is rendered offline into a one-cycle buffer
-   (thump + crack + pipe resonance), looped, and pitch-shifted by
-   playbackRate. Five buffers are rendered at different reference
-   RPMs and cross-faded so the formants stay put while the note
-   climbs — the same multisample trick real engine-sound middleware
-   uses. Two load variants (overrun / wide-open) blend on throttle.
+   This is a physical model, not a synth patch. It is built the way
+   an exhaust system actually makes noise, in two separate halves:
+
+     SOURCE    Each cylinder's exhaust valve opening is rendered as a
+               blowdown pulse — a near-instant pressure release with a
+               sharp rise and an exponential decay, plus the turbulent
+               hiss of gas tearing past the valve seat and the broad
+               hump of the piston pushing the rest of the charge out.
+               There is not a single sine wave in it. That pulse train
+               is baked into a looping buffer and pitch-shifted with
+               rpm, which is correct: the *firing rate* is the thing
+               that changes with engine speed.
+
+     RESONATOR The pulses then run through digital waveguides — delay
+               lines with a lossy, phase-inverting reflection at the
+               open end. That is literally what a pipe is. The comb of
+               resonances it stands up IS the voice of the car, and
+               because it lives in the graph rather than in the buffer
+               it does NOT slide upward when the revs climb. Chasing
+               that one property is the whole reason for the rewrite:
+               a pitch-shifted buffer drags its own formants along
+               with it, and real pipes never do that. That single
+               wrongness is most of what "synthetic" sounds like.
+
+   Each bank gets its own header and its own tailpipe, which matters
+   more than it sounds like it should. A cross-plane V8 fires evenly
+   at the crank but *unevenly per bank*, and the burble everyone knows
+   is the two banks' lopsided patterns beating against each other down
+   two separate pipes. Give the same engine a flat-plane crank and each
+   bank becomes even, and it screams instead. Same model, one table
+   entry different.
+
+   The intake is modelled too — a Helmholtz plenum fed by induction
+   pulses and airflow noise, panned away from the exhaust. Onboard,
+   half of what you hear is intake, and leaving it out is a large part
+   of why game engines sound like they are outside the car.
    ============================================================ */
 
-const ENGINE_ZONES = [820, 2000, 3600, 5600, 8200];
+/* reference speeds the buffers are rendered at; crossfading between
+   two neighbours keeps the pitch-shift inside about ±35%, which is
+   where the pulse shape still reads correctly */
+const ENGINE_ZONES = [700, 1500, 2700, 4400, 6600, 9400];
 
-/* firing patterns: fraction-of-cycle offsets. Cross-plane V8s fire
-   unevenly across the banks, which is where the burble comes from. */
+/* four load layers. The bottom one is a genuinely different render —
+   no combustion at all, just pumping — because overrun is not simply
+   "the same sound, quieter", and treating it that way is the second
+   most obvious tell after sliding formants. */
+const LOAD_LAYERS = [0.0, 0.34, 0.68, 1.0];
+const LOAD_GAIN = [0.30, 0.58, 0.85, 1.00];
+
+/* Effective speed of sound in a hot exhaust stream. Ambient air is
+   343 m/s; exhaust gas leaves the port near 800 C and travels far
+   quicker, cooling as it goes. 480 is the useful average and it is
+   what every pipe length quoted below is tuned against. */
+const GAS_C = 480;
+
+/* Firing patterns.
+     seq   event position as a fraction of the 720-degree cycle
+     bank  which pipe the event goes down (2 = shared manifold)
+     sharp how fast the blowdown collapses; big-bore lazy engines low
+     hiss  turbulence past the valve seat
+     pump  how much of the stroke is piston-pushed rather than blown
+     tick  valvetrain clatter (rotaries have ports, so none)
+     size  charge volume, which stretches the whole event
+
+   The two V8 entries are the interesting ones. Cross-plane order
+   1-8-4-3-6-5-7-2 puts the left bank on beats 0, 3, 5, 6 — gaps of
+   270-180-90-180 degrees — and that lopsidedness is the burble.
+   Flat-plane simply alternates, so each bank is an even four, and
+   that is the howl. Nothing else about the two engines differs. */
 const FIRING = {
-  i4: { cyl: 4, jitter: [0, 0, 0, 0], thump: 118, res: 196, crack: 0.55, body: 0.85 },
-  i6: { cyl: 6, jitter: [0, 0, 0, 0, 0, 0], thump: 104, res: 250, crack: 0.42, body: 0.95 },
-  v6: { cyl: 6, jitter: [0, .016, 0, .016, 0, .016], thump: 110, res: 214, crack: 0.5, body: 0.92 },
-  v8: { cyl: 8, jitter: [0, .022, 0, -.018, 0, .022, 0, -.018], thump: 92, res: 168, crack: 0.62, body: 1.0 },
-  v10: { cyl: 10, jitter: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], thump: 88, res: 300, crack: 0.78, body: 0.8 },
-  v12: { cyl: 12, jitter: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], thump: 84, res: 340, crack: 0.72, body: 0.74 },
-  flat6: { cyl: 6, jitter: [0, .01, 0, .01, 0, .01], thump: 96, res: 268, crack: 0.68, body: 0.86 },
-  rotary: { cyl: 6, jitter: [0, 0, 0, 0, 0, 0], thump: 76, res: 420, crack: 0.9, body: 0.6 },
-  ev: { cyl: 2, jitter: [0, 0], thump: 60, res: 900, crack: 0.05, body: 0.3 },
+  i4: {
+    seq: [0, .25, .5, .75], bank: [2, 2, 2, 2],
+    sharp: 1.05, hiss: .58, pump: .55, tick: .55, size: .80
+  },
+  i6: {
+    seq: [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6], bank: [2, 2, 2, 2, 2, 2],
+    sharp: .95, hiss: .48, pump: .44, tick: .45, size: .88
+  },
+  v6: {
+    seq: [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6], bank: [0, 1, 0, 1, 0, 1],
+    sharp: .98, hiss: .52, pump: .48, tick: .48, size: .90
+  },
+  /* cross-plane V8 — uneven per bank, hence the burble */
+  v8: {
+    seq: [0, .125, .25, .375, .5, .625, .75, .875], bank: [0, 1, 1, 0, 1, 0, 0, 1],
+    sharp: .88, hiss: .50, pump: .52, tick: .52, size: 1.00
+  },
+  /* flat-plane V8 — even per bank, hence the scream */
+  v8f: {
+    seq: [0, .125, .25, .375, .5, .625, .75, .875], bank: [0, 1, 0, 1, 0, 1, 0, 1],
+    sharp: 1.22, hiss: .62, pump: .40, tick: .58, size: .86
+  },
+  v10: {
+    seq: [0, .1, .2, .3, .4, .5, .6, .7, .8, .9], bank: [0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+    sharp: 1.30, hiss: .66, pump: .34, tick: .62, size: .78
+  },
+  v12: {
+    seq: [0, 1 / 12, 2 / 12, 3 / 12, 4 / 12, 5 / 12, 6 / 12, 7 / 12, 8 / 12, 9 / 12, 10 / 12, 11 / 12],
+    bank: [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+    sharp: 1.34, hiss: .60, pump: .28, tick: .58, size: .70
+  },
+  /* three cylinders per bank, 120 apart, and the two banks offset — a
+     flat six is really two triples arguing politely */
+  flat6: {
+    seq: [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6], bank: [0, 1, 0, 1, 0, 1],
+    sharp: 1.14, hiss: .70, pump: .42, tick: .50, size: .84
+  },
+  /* ports, not valves: no clatter, and the port uncovers gradually so
+     the pulse is fat and never really stops. Buzzsaw. */
+  rotary: {
+    seq: [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6], bank: [0, 1, 0, 1, 0, 1],
+    sharp: .62, hiss: .92, pump: .24, tick: 0, size: .62
+  },
+  ev: {
+    seq: [0, .5], bank: [2, 2],
+    sharp: 2.4, hiss: .10, pump: .05, tick: .05, size: .35
+  },
+};
+
+/* fallback if a car somehow has no voice of its own */
+const DEFAULT_VOICE = {
+  pipe: 2.40, pipe2: 2.52, head: 0.88, refl: .68, damp: 3200,
+  plenum: 230, plenumQ: 3.0, intake: 1.0, drive: 2.1, rasp: .50,
+  lope: .08, idle: 850
 };
 
 const Audio2 = {
   ctx: null, ready: false, master: null, volume: 0.75,
   engineType: 'v8', zones: [], nodes: {}, _lastLoad: 0, _lastRpm: 900,
-  _popT: 0, _muted: false,
+  _popT: 0, _muted: false, _acKey: '', _lastDist: 0,
 
   /* ---------------------------------------------------------- */
   start() {
@@ -43,9 +145,19 @@ const Audio2 = {
     const master = this.master = ctx.createGain();
     master.gain.value = this.volume;
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14; comp.knee.value = 24; comp.ratio.value = 6;
-    comp.attack.value = 0.005; comp.release.value = 0.18;
-    master.connect(comp); comp.connect(ctx.destination);
+    comp.threshold.value = -13; comp.knee.value = 26; comp.ratio.value = 5.5;
+    comp.attack.value = 0.004; comp.release.value = 0.16;
+    /* a soft ceiling after the compressor: a resonant pipe plus a pop plus
+       an impact can still sum past full scale, and a hard clip there is an
+       ugly crunch rather than the loud noise it is supposed to be */
+    const ceil = ctx.createWaveShaper(); ceil.oversample = '2x';
+    const cc = new Float32Array(4096);
+    // 2x oversampling rings past the curve's own maximum on a hard edge,
+    // so the curve tops out below the ceiling it is there to enforce
+    for (let i = 0; i < 4096; i++) { const x = (i / 2047.5 - 1) * 2; cc[i] = Math.tanh(x * 1.05) * 0.82; }
+    ceil.curve = cc;
+    master.connect(comp); comp.connect(ceil); ceil.connect(ctx.destination);
+    this.nodes.ceiling = ceil;
 
     /* ---- shared noise ---- */
     const nlen = sr * 3;
@@ -89,94 +201,211 @@ const Audio2 = {
   },
 
   /* ============================================================
-     ENGINE
+     SOURCE — one 720-degree cycle of exhaust-port events
      ============================================================ */
-  /* render one full 4-stroke cycle (720 deg = 2 revolutions) */
-  renderCycle(baseRpm, load, fp, forced) {
+  renderCycle(baseRpm, load, fp) {
     const ctx = this.ctx, sr = ctx.sampleRate;
-    const cycleSec = 120 / baseRpm;
-    const n = Math.max(64, Math.round(sr * cycleSec));
-    const buf = ctx.createBuffer(1, n, sr);
-    const d = buf.getChannelData(0);
+    const cycleSec = 120 / baseRpm;                 // 720 crank degrees
+    const n = Math.max(96, Math.round(sr * cycleSec));
+    const buf = ctx.createBuffer(2, n, sr);
+    const L = buf.getChannelData(0), R = buf.getChannelData(1);
+    const nc = fp.seq.length;
+    const evSec = cycleSec / nc;                    // average gap between events
 
-    const cyl = fp.cyl;
-    // higher reference rpm = shorter, sharper events
-    const rpmK = Math.min(1, 2600 / baseRpm);
-    const thumpF = fp.thump * (1 + (1 - rpmK) * 0.35);
-    const resF = fp.res * (1 + (1 - rpmK) * 0.25);
-    const crackAmt = fp.crack * lerp(0.85, 1.75, load);
-    const tauThump = cycleSec * lerp(0.42, 0.26, load) / Math.max(1, cyl / 6);
-    const tauRes = cycleSec * 0.30 / Math.max(1, cyl / 6);
-    const tauCrack = 0.0011 + 0.0028 * (1 - load);
+    /* Blowdown timing is set by gas dynamics and valve lift, not by
+       engine speed, so it is clamped at both ends. That one fact is
+       why an engine reads as separate thumps at idle and as a single
+       continuous howl at 9000 — up there the pulses simply overlap. */
+    const rise = clamp(evSec * 0.030, 0.00007, 0.00055);
+    const decay = clamp(evSec * 0.20 / fp.sharp, 0.00085, 0.0075) * fp.size;
+    const pumpLen = evSec * 0.92;
 
-    const add = (idx, v) => { d[((idx % n) + n) % n] += v; };
+    const add = (ch, idx, v) => { const i = ((idx % n) + n) % n; ch[i] += v; };
 
-    for (let k = 0; k < cyl; k++) {
-      const off = (k / cyl) + (fp.jitter[k % fp.jitter.length] || 0);
-      const start = Math.round(off * n);
-      const phase = Math.random() * TAU;
-      const gain = 1 + (Math.random() - 0.5) * 0.10 * (1 - load);   // cylinder-to-cylinder variance
-      const len = Math.min(n, Math.round(sr * cycleSec * 0.95));
+    for (let k = 0; k < nc; k++) {
+      const s0 = Math.round(fp.seq[k] * n);
+      const b = fp.bank[k];
+      // the banks are not acoustically isolated, so each leaks into the other
+      const gL = b === 1 ? 0.16 : (b === 2 ? 0.74 : 1.0);
+      const gR = b === 0 ? 0.16 : (b === 2 ? 0.74 : 1.0);
+      // no two cylinders ever make exactly the same pressure
+      const varn = 1 + (Math.random() - 0.5) * 0.15 * (1 - load * 0.55);
+      const amp = varn * (0.10 + 1.00 * load);
+      const hiss = fp.hiss * (0.75 + 0.45 * load);
+
+      const len = Math.min(n, Math.ceil(sr * decay * 8));
       for (let i = 0; i < len; i++) {
         const t = i / sr;
-        const eT = Math.exp(-t / tauThump);
-        const eR = Math.exp(-t / tauRes);
-        const eC = Math.exp(-t / tauCrack);
-        let v = 0;
-        v += Math.sin(TAU * thumpF * t + phase) * eT * 1.00 * fp.body;
-        v += Math.sin(TAU * thumpF * 2.02 * t + phase * 1.3) * eT * 0.42 * load;
-        v += Math.sin(TAU * resF * t + phase * 0.7) * eR * 0.55;
-        v += Math.sin(TAU * resF * 1.51 * t) * eR * 0.22 * load;
-        v += (Math.random() * 2 - 1) * eC * crackAmt * 1.55;
-        // hard edge on the exhaust pulse — this is most of the 'bite'
-        v += Math.sin(TAU * resF * 3.1 * t) * Math.exp(-t / (tauCrack * 3.2)) * 0.34 * load;
-        if (forced === 'turbo') v += (Math.random() * 2 - 1) * Math.exp(-t / 0.010) * 0.20 * load;
-        add(start + i, v * gain);
+        const env = (1 - Math.exp(-t / rise)) * Math.exp(-t / decay);
+        let v = env * amp;
+        // gas tearing past the valve seat — broadband, rides the envelope
+        v += (Math.random() * 2 - 1) * env * hiss * amp * 1.20;
+        // the slower expansion as the header swallows the slug
+        v += (1 - Math.exp(-t / (rise * 9))) * Math.exp(-t / (decay * 3.6)) * amp * 0.32;
+        add(L, s0 + i, v * gL); add(R, s0 + i, v * gR);
+      }
+
+      /* The piston pushing the rest of the charge out. On a closed
+         throttle this is nearly all that is left, which is exactly why
+         overrun does not sound like full load turned down. */
+      const pk = fp.pump * (0.50 + 0.85 * (1 - load)) * 0.40;
+      const pl = Math.min(n - 1, Math.max(8, Math.round(sr * pumpLen)));
+      const pOff = Math.round(sr * decay * 1.4);
+      for (let i = 0; i < pl; i++) {
+        const w = Math.sin(Math.PI * (i / pl));
+        const v = w * w * pk * (1 + (Math.random() - 0.5) * 0.25 * fp.hiss);
+        add(L, s0 + pOff + i, v * gL); add(R, s0 + pOff + i, v * gR);
+      }
+
+      /* Valve close. Mechanical, radiating from the block rather than
+         out of a pipe, so it sits centred instead of panned to a bank. */
+      if (fp.tick > 0) {
+        const tOff = Math.round(sr * pumpLen * 0.95);
+        const tl = Math.max(4, Math.round(sr * 0.00075));
+        for (let i = 0; i < tl; i++) {
+          const v = (Math.random() * 2 - 1) * Math.exp(-i / (tl * 0.34)) * fp.tick * 0.085
+            * (0.7 + 0.5 * load);
+          add(L, s0 + tOff + i, v); add(R, s0 + tOff + i, v);
+        }
       }
     }
-    // one-pole smoothing to knock the hardest edges off
-    let p = 0; const a = load > 0.5 ? 0.82 : 0.64;
-    for (let i = 0; i < n; i++) { p = p + (d[i] - p) * a; d[i] = p; }
-    // wrap the filter once more so the loop point is continuous
-    for (let i = 0; i < 64; i++) { p = p + (d[i] - p) * a; d[i] = p; }
-    // normalise
+
+    /* the pumping hump is unipolar, so strip the DC it leaves behind */
+    let mL = 0, mR = 0;
+    for (let i = 0; i < n; i++) { mL += L[i]; mR += R[i]; }
+    mL /= n; mR /= n;
+    for (let i = 0; i < n; i++) { L[i] -= mL; R[i] -= mR; }
+
+    /* Band-limit before the buffer ever gets pitched up, or the
+       blowdown edge folds back as aliasing. One settling pass first,
+       so the filter state at index 0 is already what it would be after
+       wrapping and the loop joint stays inaudible. */
+    const a = 1 - Math.exp(-TAU * 0.30);
+    let p = 0, q = 0;
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < n; i++) {
+        p += (L[i] - p) * a; q += (R[i] - q) * a;
+        if (pass) { L[i] = p; R[i] = q; }
+      }
+    }
+
     let mx = 1e-6;
-    for (let i = 0; i < n; i++) mx = Math.max(mx, Math.abs(d[i]));
-    const s = 0.92 / mx;
-    for (let i = 0; i < n; i++) d[i] *= s;
+    for (let i = 0; i < n; i++) mx = Math.max(mx, Math.abs(L[i]), Math.abs(R[i]));
+    const s = 0.90 / mx;
+    for (let i = 0; i < n; i++) { L[i] *= s; R[i] *= s; }
     return buf;
+  },
+
+  /* ============================================================
+     RESONATOR — a real pipe, built out of a delay line
+     ============================================================ */
+  /* Signal enters, runs to the open end, and comes back inverted, a
+     little quieter and short of its top end. Sustained that way it
+     stands up a comb of resonances at odd multiples of c/4L, which is
+     precisely what a tube closed at the engine and open at the tail
+     does in metal. The inversion is also free DC rejection. */
+  /* A loop that reflects R of what it is given resonates about 1/(1-R)
+     times louder at its peaks, so a race system would come out seven
+     times the level of a muffled one purely as an artefact. Back most
+     of that out: the free-flowing pipe still ends up louder, which is
+     true, but by a believable margin rather than an arithmetic one. */
+  _pipeMakeup(refl) { return 1.45 * Math.pow(1 - clamp(refl, 0, 0.86), 0.45); },
+
+  _mkPipe(len, refl, damp) {
+    const ctx = this.ctx;
+    const inG = ctx.createGain();
+    const dl = ctx.createDelay(0.25);
+    // one render quantum is the shortest delay a feedback loop can hold,
+    // so clamp above it rather than let the graph silently retune the pipe
+    dl.delayTime.value = clamp(2 * len / GAS_C, 0.0042, 0.20);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = damp; lp.Q.value = 0.4;
+    const fb = ctx.createGain(); fb.gain.value = -clamp(refl, 0, 0.86);
+    const wet = ctx.createGain(); wet.gain.value = this._pipeMakeup(refl);
+    const dry = ctx.createGain(); dry.gain.value = 0.42;
+    const out = ctx.createGain();
+    inG.connect(dl);
+    dl.connect(lp); lp.connect(fb); fb.connect(dl);   // the reflection
+    dl.connect(wet); wet.connect(out);
+    inG.connect(dry); dry.connect(out);               // the pulse you hear first
+    return { inG, dl, lp, fb, wet, dry, out, len };
   },
 
   buildEngine() {
     const ctx = this.ctx;
     const sum = ctx.createGain(); sum.gain.value = 1;
+    this.nodes.engSum = sum;
 
-    // exhaust formants — three parallel peaks give the pipe its voice
-    const mkPeak = (f, q, g) => {
-      const b = ctx.createBiquadFilter(); b.type = 'peaking';
-      b.frequency.value = f; b.Q.value = q; b.gain.value = g; return b;
-    };
-    const p1 = mkPeak(140, 2.2, 7);
-    const p2 = mkPeak(430, 1.6, 5);
-    const p3 = mkPeak(1900, 1.5, 2);
-    const p4 = mkPeak(3400, 1.2, 0);
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; lp.Q.value = 1.05;
-    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 42;
+    /* one bank per channel, one pipe per bank */
+    const split = ctx.createChannelSplitter(2);
+    sum.connect(split);
 
+    const exh = ctx.createGain(); exh.gain.value = 1;
+    const pipes = [];
+    for (let s = 0; s < 2; s++) {
+      const head = this._mkPipe(0.88, 0.55, 4200);      // primaries into the collector
+      const main = this._mkPipe(2.40, 0.68, 3200);      // the tailpipe run
+      const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+      if (pan) pan.pan.value = s ? 0.34 : -0.34;
+      const bank = ctx.createGain();
+      split.connect(bank, s);
+      bank.connect(head.inG);
+      head.out.connect(main.inG);
+      if (pan) { main.out.connect(pan); pan.connect(exh); } else main.out.connect(exh);
+      pipes.push({ head, main, pan, bank });
+    }
+    this.nodes.pipes = pipes;
+
+    /* One-shots that physically happen inside the exhaust — pops,
+       misfires — enter here, so they come out with the pipe's own
+       colour instead of being pasted over the top of it. */
+    const pipeIn = ctx.createGain(); pipeIn.gain.value = 1;
+    for (const p of pipes) pipeIn.connect(p.head.inG);
+    this.nodes.pipeIn = pipeIn;
+
+    /* the metal saturating, then radiation loss off the tail */
     const shaper = ctx.createWaveShaper();
-    const cv = new Float32Array(2048);
-    for (let i = 0; i < 2048; i++) { const x = i / 1023.5 - 1; cv[i] = Math.tanh(x * 2.1) * 0.85; }
-    shaper.curve = cv; shaper.oversample = '2x';
-
-    const out = ctx.createGain(); out.gain.value = 0.0;
-    sum.connect(p1); p1.connect(p2); p2.connect(p3); p3.connect(p4); p4.connect(shaper);
-    shaper.connect(lp); lp.connect(hp); hp.connect(out);
+    shaper.oversample = '2x';
+    this._setDrive(shaper, 2.1);
+    const rasp = ctx.createBiquadFilter();
+    rasp.type = 'peaking'; rasp.frequency.value = 2600; rasp.Q.value = 1.3; rasp.gain.value = 0;
+    const tone = ctx.createBiquadFilter();
+    tone.type = 'lowpass'; tone.frequency.value = 3400; tone.Q.value = 0.9;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 34;
+    const out = ctx.createGain(); out.gain.value = 0;
+    exh.connect(shaper); shaper.connect(rasp); rasp.connect(tone); tone.connect(hp); hp.connect(out);
     out.connect(this.master); out.connect(this.nodes.revSend);
+    this.nodes.eng = { sum, exh, shaper, tone, hp, rasp, out };
 
-    this.nodes.eng = { sum, lp, hp, out, p1, p2, p3, p4, shaper };
+    /* ---- intake tract ----
+       A Helmholtz plenum: airbox volume working against the inertia of
+       the air standing in the runners. Fed by airflow noise and by
+       induction pulses at the firing rate, panned away from the
+       exhaust because that is where it sits relative to your ears. */
+    const helm = ctx.createBiquadFilter();
+    helm.type = 'peaking'; helm.frequency.value = 230; helm.Q.value = 3.0; helm.gain.value = 14;
+    const helm2 = ctx.createBiquadFilter();
+    helm2.type = 'bandpass'; helm2.frequency.value = 620; helm2.Q.value = 0.7;
+    const intG = ctx.createGain(); intG.gain.value = 0;
+    const intAir = this._mkNoise(1);
+    const airG = ctx.createGain(); airG.gain.value = 0;
+    intAir.connect(airG); airG.connect(helm);
+    // induction pulses: same firing rate as the exhaust, heavily rounded
+    const pulseLP = ctx.createBiquadFilter();
+    pulseLP.type = 'lowpass'; pulseLP.frequency.value = 900; pulseLP.Q.value = 0.7;
+    const pulseG = ctx.createGain(); pulseG.gain.value = 0;
+    sum.connect(pulseLP); pulseLP.connect(pulseG); pulseG.connect(helm);
+    helm.connect(helm2); helm2.connect(intG);
+    const intPan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if (intPan) { intPan.pan.value = -0.18; intG.connect(intPan); intPan.connect(this.master); }
+    else intG.connect(this.master);
+    this.nodes.intake = { helm, helm2, g: intG, air: airG, pulse: pulseG, pan: intPan };
 
-    /* turbo */
-    // the whine is the blade-pass tone plus a beating second impeller order
+    /* Turbo — blade-pass tone plus a beating second impeller order.
+       Routed through the plenum, because the compressor sits upstream
+       of the airbox and that is the path the whine actually takes to
+       your ears. Hanging it straight on the master is why bolt-on
+       turbo sounds always feel bolted on. */
     const tOsc = ctx.createOscillator(); tOsc.type = 'sawtooth'; tOsc.frequency.value = 3600;
     const tOsc2 = ctx.createOscillator(); tOsc2.type = 'sine'; tOsc2.frequency.value = 5400;
     const tOsc3 = ctx.createOscillator(); tOsc3.type = 'sine'; tOsc3.frequency.value = 7800;
@@ -185,15 +414,15 @@ const Audio2 = {
     const tBp2 = ctx.createBiquadFilter(); tBp2.type = 'peaking'; tBp2.frequency.value = 6200;
     tBp2.Q.value = 6; tBp2.gain.value = 9;
     tOsc.connect(tBp); tOsc2.connect(tBp); tOsc3.connect(tBp);
-    tBp.connect(tBp2); tBp2.connect(tG); tG.connect(this.master);
+    tBp.connect(tBp2); tBp2.connect(tG); tG.connect(helm);
     tOsc.start(); tOsc2.start(); tOsc3.start();
     const tNoise = this._mkNoise();
     const tnF = ctx.createBiquadFilter(); tnF.type = 'bandpass'; tnF.frequency.value = 5200; tnF.Q.value = 1.6;
     const tnG = ctx.createGain(); tnG.gain.value = 0;
-    tNoise.connect(tnF); tnF.connect(tnG); tnG.connect(this.master);
+    tNoise.connect(tnF); tnF.connect(tnG); tnG.connect(helm);
     this.nodes.turbo = { osc: tOsc, osc2: tOsc2, osc3: tOsc3, gain: tG, bp: tBp, bp2: tBp2, nG: tnG, nF: tnF };
 
-    /* supercharger whine — strong odd harmonics from the rotor lobes */
+    /* supercharger — rotor lobes, strong odd harmonics, also upstream */
     const scSum = ctx.createGain(); scSum.gain.value = 0;
     const scOscs = [];
     for (const h of [1, 2, 3, 4.5]) {
@@ -203,7 +432,7 @@ const Audio2 = {
       scOscs.push({ o, h });
     }
     const scBp = ctx.createBiquadFilter(); scBp.type = 'bandpass'; scBp.frequency.value = 2400; scBp.Q.value = 1.1;
-    scSum.connect(scBp); scBp.connect(this.master);
+    scSum.connect(scBp); scBp.connect(helm);
     this.nodes.sc = { sum: scSum, oscs: scOscs, bp: scBp };
 
     /* straight-cut gearbox whine */
@@ -214,30 +443,71 @@ const Audio2 = {
     this.nodes.gearWhine = { osc: gwO, gain: gwG };
   },
 
+  _setDrive(shaper, d) {
+    const cv = new Float32Array(2048);
+    for (let i = 0; i < 2048; i++) {
+      const x = i / 1023.5 - 1;
+      // asymmetric: the pressure side clips before the vacuum side, and
+      // that asymmetry is where the even-harmonic warmth of real metal lives
+      cv[i] = Math.tanh(x * d * (x > 0 ? 1.18 : 0.86)) * 0.86;
+    }
+    shaper.curve = cv;
+  },
+
   setEngineType(type, force) {
     if (!this.ready) { this.engineType = type; return; }
     if (!force && type === this._builtType) return;
     this._builtType = type; this.engineType = type;
     const fp = FIRING[type] || FIRING.v8;
     const ctx = this.ctx;
-    // tear down old zone sources
-    for (const z of this.zones) { try { z.a.stop(); z.b.stop(); } catch (e) { } }
+    for (const z of this.zones) { for (const s of z.src) { try { s.stop(); } catch (e) { } } }
     this.zones = [];
     for (const rpm of ENGINE_ZONES) {
-      const bufA = this.renderCycle(rpm, 0.12, fp, this._forced);
-      const bufB = this.renderCycle(rpm, 1.0, fp, this._forced);
-      const a = ctx.createBufferSource(); a.buffer = bufA; a.loop = true;
-      const b = ctx.createBufferSource(); b.buffer = bufB; b.loop = true;
-      const ga = ctx.createGain(); ga.gain.value = 0;
-      const gb = ctx.createGain(); gb.gain.value = 0;
-      a.connect(ga); b.connect(gb);
-      ga.connect(this.nodes.eng.sum); gb.connect(this.nodes.eng.sum);
-      a.start(); b.start();
-      this.zones.push({ rpm, a, b, ga, gb });
+      const src = [], g = [];
+      for (let l = 0; l < LOAD_LAYERS.length; l++) {
+        const s = ctx.createBufferSource();
+        s.buffer = this.renderCycle(rpm, LOAD_LAYERS[l], fp);
+        s.loop = true;
+        const gn = ctx.createGain(); gn.gain.value = 0;
+        s.connect(gn); gn.connect(this.nodes.engSum);
+        s.start();
+        src.push(s); g.push(gn);
+      }
+      this.zones.push({ rpm, src, g });
     }
   },
 
   setForced(kind) { this._forced = kind; },
+
+  /* ============================================================
+     VOICE — pipe geometry from the car and the parts bolted to it
+     ============================================================ */
+  applyVoice(ph, force) {
+    if (!this.ready || !this.nodes.pipes) return;
+    const A = ph.acoustics || DEFAULT_VOICE;
+    const key = (ph.engineId || '') + '|' + A.pipe.toFixed(3) + '|' + A.refl.toFixed(3) +
+      '|' + A.damp.toFixed(0) + '|' + A.plenum.toFixed(0) + '|' + (A.absorb || 1).toFixed(2);
+    if (!force && key === this._acKey) { this._ac = A; return; }
+    this._acKey = key;
+    const t = this.ctx.currentTime, N = this.nodes;
+    const lens = [A.pipe, A.pipe2];
+    for (let s = 0; s < 2; s++) {
+      const p = N.pipes[s];
+      p.main.dl.delayTime.setTargetAtTime(clamp(2 * lens[s] / GAS_C, 0.0042, 0.20), t, 0.08);
+      p.head.dl.delayTime.setTargetAtTime(clamp(2 * A.head * (s ? 1.045 : 1) / GAS_C, 0.0042, 0.20), t, 0.08);
+      p.main.fb.gain.setTargetAtTime(-clamp(A.refl, 0, 0.86), t, 0.10);
+      p.head.fb.gain.setTargetAtTime(-clamp(A.refl * 0.80, 0, 0.84), t, 0.10);
+      p.main.wet.gain.setTargetAtTime(this._pipeMakeup(A.refl), t, 0.10);
+      p.head.wet.gain.setTargetAtTime(this._pipeMakeup(A.refl * 0.80), t, 0.10);
+      p.main.lp.frequency.setTargetAtTime(clamp(A.damp, 300, 16000), t, 0.10);
+      p.head.lp.frequency.setTargetAtTime(clamp(A.damp * 1.35, 300, 18000), t, 0.10);
+      p.bank.gain.setTargetAtTime(A.absorb === undefined ? 1 : A.absorb, t, 0.10);
+    }
+    N.intake.helm.frequency.setTargetAtTime(clamp(A.plenum, 60, 2000), t, 0.08);
+    N.intake.helm.Q.setTargetAtTime(clamp(A.plenumQ, 0.4, 12), t, 0.08);
+    this._setDrive(N.eng.shaper, clamp(A.drive, 0.6, 5));
+    this._ac = A;
+  },
 
   /* ============================================================
      TYRES / ROAD
@@ -302,67 +572,96 @@ const Audio2 = {
     const rev = clamp01(rpm / redline);
     const prox = clamp01(1.5 - camDist / 24);
 
-    /* --- zone crossfade --- */
+    this.applyVoice(car.ph);
+    const A = this._ac || DEFAULT_VOICE;
+
+    /* Doppler. A rigid chase camera sees almost none of this, but a
+       fixed camera watching a car go past sees all of it, and it is
+       the cheapest cue there is that the thing is actually moving. */
+    let dop = 1;
+    if (dt > 0 && this._lastDist) {
+      const closing = (this._lastDist - camDist) / dt;
+      const raw = clamp(1 + closing / 343, 0.86, 1.16);
+      this._dop = this._dop === undefined ? raw : lerp(this._dop, raw, 0.25);
+      dop = this._dop;
+    }
+    this._lastDist = camDist;
+
+    /* --- zone / load crossfade --- */
     let zi = 0;
     while (zi < ENGINE_ZONES.length - 2 && rpm > ENGINE_ZONES[zi + 1]) zi++;
     const lo = ENGINE_ZONES[zi], hi = ENGINE_ZONES[zi + 1];
-    const f = clamp01((rpm - lo) / Math.max(1, hi - lo));
-    const lope = (car.ph.voice ? car.ph.voice.lope : 0.08);
-    const wobble = 1 + (rpm < 1700 ? (Math.sin(t * 9.1) * 0.6 + Math.sin(t * 5.3) * 0.4) * lope * 0.09 * (1 - load) : 0);
+    const zf = clamp01((rpm - lo) / Math.max(1, hi - lo));
+
+    /* Idle lope: an aggressive cam does not fill every cylinder
+       equally, so the crank speed itself wanders at low rpm. */
+    const lope = A.lope === undefined ? 0.08 : A.lope;
+    const wob = rpm < 1900
+      ? 1 + (Math.sin(t * 8.7) * 0.55 + Math.sin(t * 5.1 + 1.3) * 0.30 + Math.sin(t * 13.7) * 0.15)
+      * lope * 0.11 * (1 - load)
+      : 1;
+
+    // which two load layers straddle the current throttle
+    let li = 0;
+    while (li < LOAD_LAYERS.length - 2 && load > LOAD_LAYERS[li + 1]) li++;
+    const lf = clamp01((load - LOAD_LAYERS[li]) / Math.max(0.001, LOAD_LAYERS[li + 1] - LOAD_LAYERS[li]));
 
     for (let i = 0; i < this.zones.length; i++) {
       const z = this.zones[i];
-      let w = 0;
-      if (i === zi) w = 1 - f; else if (i === zi + 1) w = f;
-      const rate = clamp(rpm / z.rpm, 0.25, 4) * wobble;
-      if (w > 0.0005) {
-        z.a.playbackRate.setTargetAtTime(rate, t, 0.012);
-        z.b.playbackRate.setTargetAtTime(rate, t, 0.012);
+      let zw = 0;
+      if (i === zi) zw = 1 - zf; else if (i === zi + 1) zw = zf;
+      if (zw > 0.0004) {
+        const rate = clamp(rpm / z.rpm, 0.2, 5) * wob * dop;
+        for (const s of z.src) s.playbackRate.setTargetAtTime(rate, t, 0.010);
       }
-      // load crossfade: overrun buffer vs wide-open buffer
-      z.ga.gain.setTargetAtTime(w * (1 - load) * 0.95, t, 0.035);
-      z.gb.gain.setTargetAtTime(w * (0.16 + load * 0.94), t, 0.030);
+      for (let l = 0; l < z.g.length; l++) {
+        let lw = 0;
+        if (l === li) lw = 1 - lf; else if (l === li + 1) lw = lf;
+        z.g[l].gain.setTargetAtTime(zw * lw * LOAD_GAIN[l], t, 0.028);
+      }
     }
 
-    /* --- tone shaping --- */
+    /* --- the pipe, live ---
+       Hot gas travels faster, so the resonances climb a little under
+       load and the top end survives the trip better. The pipe is not
+       changing length; the gas inside it is changing speed. */
+    const heat = clamp01(load * 0.7 + rev * 0.5);
+    const lens = [A.pipe, A.pipe2];
+    for (let s = 0; s < 2; s++) {
+      const p = N.pipes[s];
+      p.main.dl.delayTime.setTargetAtTime(
+        clamp(2 * lens[s] / (GAS_C * (1 + 0.085 * heat)), 0.0042, 0.20), t, 0.18);
+      p.main.lp.frequency.setTargetAtTime(clamp(A.damp * (1 + 0.60 * heat), 300, 16000), t, 0.09);
+      p.head.lp.frequency.setTargetAtTime(clamp(A.damp * 1.35 * (1 + 0.75 * heat), 300, 18000), t, 0.09);
+    }
+
+    /* --- limiter / tone / level --- */
     let limiterCut = 1;
     if (rpm >= redline * 0.995 && load > 0.4) {
-      limiterCut = (Math.sin(t * 78) > 0 ? 0.18 : 1);
-      if (limiterCut < 0.5) this.misfire(0.8);
+      limiterCut = (Math.sin(t * 78) > 0 ? 0.20 : 1);
+      if (limiterCut < 0.5) this.misfire(0.85);
     }
-    const exhaust = 1 + (tune.exhaust || 0) * 0.28;
+    const rasp = A.rasp === undefined ? 0.5 : A.rasp;
+    N.eng.tone.frequency.setTargetAtTime(
+      clamp((1900 + 6200 * rev + 3200 * load) * (A.bright || 1), 400, 17000), t, 0.035);
+    N.eng.rasp.frequency.setTargetAtTime(1700 + 2600 * rev, t, 0.07);
+    N.eng.rasp.gain.setTargetAtTime(rasp * (2 + 8 * rev * (0.35 + 0.65 * load)), t, 0.07);
+    // the pipe itself already gets louder with a freer system, so this
+    // only adds the small part that is radiation off a bigger tailpipe
+    const vol = (0.20 + 0.50 * load + 0.42 * rev) * prox * limiterCut
+      * (0.88 + 0.09 * (tune.exhaust || 0));
+    N.eng.out.gain.setTargetAtTime(vol * 0.72, t, 0.028);
 
-    /* per-car exhaust voice — this is what stops every car sounding the same */
-    const V = car.ph.voice;
-    if (V && this._voiceKey !== car.ph.engineId + '|' + (car.spec && car.spec.id)) {
-      this._voiceKey = car.ph.engineId + '|' + (car.spec && car.spec.id);
-      const blend = car.ph.voiceShift ? 0.45 : 1.0;   // a swapped engine dilutes the car's own voice
-      const peaks = [N.eng.p1, N.eng.p2, N.eng.p3];
-      for (let i = 0; i < 3; i++) {
-        const q = V.peaks[i];
-        peaks[i].frequency.setTargetAtTime(lerp(peaks[i].frequency.value, q[0], blend), t, 0.05);
-        peaks[i].Q.setTargetAtTime(q[1], t, 0.05);
-      }
-      this._voiceGains = V.peaks.map(q => q[2] * blend);
-      this._voiceDrive = lerp(2.1, V.drive, blend);
-      this._voiceRasp = V.rasp * blend;
-      this._voiceTail = V.tail;
-      // reshape the saturation curve for this engine's character
-      const cv = new Float32Array(2048);
-      const d = this._voiceDrive;
-      for (let i = 0; i < 2048; i++) { const x = i / 1023.5 - 1; cv[i] = Math.tanh(x * d) * 0.85; }
-      N.eng.shaper.curve = cv;
-    }
-    const vg = this._voiceGains || [7, 5, 2];
-    const rasp = this._voiceRasp === undefined ? 0.5 : this._voiceRasp;
-    const tail = this._voiceTail === undefined ? 1 : this._voiceTail;
-    N.eng.lp.frequency.setTargetAtTime((1500 + 5200 * rev + 3400 * load) * exhaust * tail, t, 0.035);
-    N.eng.p1.gain.setTargetAtTime(vg[0] * (0.55 + 0.55 * (1 - rev)), t, 0.08);
-    N.eng.p2.gain.setTargetAtTime(vg[1] * (0.45 + 0.75 * load), t, 0.08);
-    N.eng.p3.gain.setTargetAtTime(vg[2] * (0.30 + 0.9 * load + 0.5 * rev) + rasp * 6 * rev, t, 0.08);
-    N.eng.p4.gain.setTargetAtTime(-3 + 7 * load * rev, t, 0.08);
-    const vol = (0.22 + 0.52 * load + 0.38 * rev) * prox * limiterCut * (0.85 + 0.30 * (tune.exhaust || 0));
-    N.eng.out.gain.setTargetAtTime(vol * 0.82, t, 0.030);
+    /* --- intake ---
+       Mass flow, near enough: throttle opening times engine speed.
+       This is why an intake goes quiet the instant you lift, even
+       though the engine is still spinning just as hard. */
+    const flow = clamp01(load * (0.30 + 0.70 * rev));
+    const iv = A.intake || 1;
+    N.intake.air.gain.setTargetAtTime(flow * 0.30 * iv, t, 0.05);
+    N.intake.pulse.gain.setTargetAtTime((0.10 + 0.42 * flow) * iv * 0.55, t, 0.05);
+    N.intake.helm2.frequency.setTargetAtTime(clamp(A.plenum * (1.6 + 1.8 * rev), 120, 6000), t, 0.06);
+    N.intake.g.gain.setTargetAtTime((0.16 + 0.62 * flow) * prox * iv * 0.42, t, 0.05);
 
     /* --- forced induction --- */
     const boost = clamp01(car.boostPsi ? car.boostPsi / Math.max(1, car.maxBoostPsi || 12) : 0);
@@ -375,16 +674,16 @@ const Audio2 = {
       N.turbo.osc3.frequency.setTargetAtTime(f0 * 2.41, t, 0.045);
       N.turbo.bp.frequency.setTargetAtTime(f0 * 1.05, t, 0.045);
       N.turbo.bp2.frequency.setTargetAtTime(f0 * 1.7, t, 0.05);
-      N.turbo.gain.gain.setTargetAtTime(0.105 * (0.20 + 0.80 * boost) * shaft * prox, t, 0.06);
+      N.turbo.gain.gain.setTargetAtTime(0.115 * (0.20 + 0.80 * boost) * shaft * prox, t, 0.06);
       N.turbo.nF.frequency.setTargetAtTime(3800 + 6000 * shaft, t, 0.06);
-      N.turbo.nG.gain.setTargetAtTime(0.045 * boost * (0.3 + 0.7 * load) * prox, t, 0.07);
+      N.turbo.nG.gain.setTargetAtTime(0.050 * boost * (0.3 + 0.7 * load) * prox, t, 0.07);
       N.sc.sum.gain.setTargetAtTime(0, t, 0.1);
       if (this._lastLoad > 0.45 && load < 0.16 && boost > 0.16) this.flutter(boost);
     } else if (car.forced === 'super') {
       const base = rpm / 60 * 3.2;
       for (const s of N.sc.oscs) s.o.frequency.setTargetAtTime(clamp(base * s.h * 2.6, 20, 12000), t, 0.03);
       N.sc.bp.frequency.setTargetAtTime(1400 + 3600 * rev, t, 0.05);
-      N.sc.sum.gain.setTargetAtTime(0.115 * (0.25 + 0.75 * load) * (0.25 + 0.75 * rev) * prox, t, 0.05);
+      N.sc.sum.gain.setTargetAtTime(0.125 * (0.25 + 0.75 * load) * (0.25 + 0.75 * rev) * prox, t, 0.05);
       N.turbo.gain.gain.setTargetAtTime(0, t, 0.1);
       N.turbo.nG.gain.setTargetAtTime(0, t, 0.1);
     } else {
@@ -393,14 +692,17 @@ const Audio2 = {
       N.sc.sum.gain.setTargetAtTime(0, t, 0.12);
     }
 
-    /* --- overrun pops --- */
-    if (this._lastLoad > 0.45 && load < 0.14 && rev > 0.34 && t - this._popT > 0.22) {
+    /* --- overrun: fuel keeps arriving and lights in a hot pipe.
+       A harder-reflecting system cracks louder, which is exactly the
+       reason people fit one. --- */
+    if (this._lastLoad > 0.45 && load < 0.14 && rev > 0.32 && t - this._popT > 0.20) {
       this._popT = t;
       const n = 3 + ((Math.random() * 5) | 0);
-      const boostBias = 1 + (car.forced !== 'none' ? 0.6 : 0) + (tune.exhaust || 0) * 0.25;
+      const bias = (1 + (car.forced !== 'none' ? 0.55 : 0) + (tune.exhaust || 0) * 0.30)
+        * (0.6 + 0.6 * (A.refl || 0.68) / 0.68);
       for (let i = 0; i < n; i++)
-        setTimeout(() => this.pop((0.55 + Math.random() * 0.6 * rev) * boostBias),
-          i * (32 + Math.random() * 60));
+        setTimeout(() => this.pop((0.55 + Math.random() * 0.6 * rev) * bias),
+          i * (30 + Math.random() * 62));
     }
     this._lastLoad = load; this._lastRpm = rpm;
 
@@ -449,11 +751,14 @@ const Audio2 = {
     const g = ctx.createGain();
     g.gain.setValueAtTime(cfg.vol, t);
     g.gain.exponentialRampToValueAtTime(0.0005, t + cfg.dur);
-    s.connect(f); f.connect(g); g.connect(this.master);
+    s.connect(f); f.connect(g);
+    // anything that physically happens inside the exhaust goes down the
+    // pipe, so it arrives wearing the pipe's resonances
+    g.connect(cfg.pipe && this.nodes.pipeIn ? this.nodes.pipeIn : this.master);
     if (cfg.rev) g.connect(this.nodes.revSend);
     s.start(t); s.stop(t + cfg.dur + 0.05);
   },
-  _tone(freq, dur, vol, type, sweep, when) {
+  _tone(freq, dur, vol, type, sweep, when, pipe) {
     if (!this.ready) return;
     const ctx = this.ctx, t = when === undefined ? ctx.currentTime : Math.max(when, ctx.currentTime);
     const o = ctx.createOscillator(); o.type = type || 'sine';
@@ -462,14 +767,16 @@ const Audio2 = {
     const g = ctx.createGain();
     g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.0004, t + dur);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(pipe && this.nodes.pipeIn ? this.nodes.pipeIn : this.master);
     o.start(t); o.stop(t + dur + 0.02);
   },
 
+  /* Unburnt fuel lighting off in the pipe. It detonates partway down,
+     so the pipe rings behind it — the ring is the crack, not the bang. */
   pop(strength) {
-    this._burst({ f0: 1100 + Math.random() * 2400, f1: 200, dur: 0.10, vol: 0.24 * strength, q: 0.9, rev: 1 });
-    this._burst({ f0: 5200, dur: 0.022, vol: 0.13 * strength, q: 2.5 });
-    this._tone(85 + Math.random() * 60, 0.10, 0.15 * strength, 'triangle', 42);
+    this._burst({ f0: 1100 + Math.random() * 2400, f1: 200, dur: 0.10, vol: 0.30 * strength, q: 0.9, pipe: 1, rev: 1 });
+    this._burst({ f0: 5200, dur: 0.022, vol: 0.11 * strength, q: 2.5, pipe: 1 });
+    this._tone(85 + Math.random() * 60, 0.10, 0.13 * strength, 'triangle', 42, undefined, 1);
   },
   /* compressor surge — the stu-stu-stu when the throttle shuts on boost */
   flutter(boost) {
@@ -498,8 +805,8 @@ const Audio2 = {
     const t = this.ctx.currentTime;
     if (t - (this._misT || 0) < 0.055) return;
     this._misT = t;
-    this._burst({ f0: 1400 + Math.random() * 2200, f1: 260, dur: 0.075, vol: 0.16 * strength, q: 1.1, rev: 1 });
-    this._tone(110 + Math.random() * 90, 0.06, 0.11 * strength, 'square', 55);
+    this._burst({ f0: 1400 + Math.random() * 2200, f1: 260, dur: 0.075, vol: 0.19 * strength, q: 1.1, pipe: 1, rev: 1 });
+    this._tone(110 + Math.random() * 90, 0.06, 0.10 * strength, 'square', 55, undefined, 1);
   },
 
   bov(boost, flutter) {

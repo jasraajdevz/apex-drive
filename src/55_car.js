@@ -344,7 +344,11 @@ const CAR_SPECS = [
     wing: { z: .34, y: 1.02, chord: .30, h: .20, gurney: 1 },
     sig: { midEngine: 1, buttress: 1, louvres: 1, yLamps: 1,
            centreExhaust: 1, finTail: 1, canards: 1 },
-    voice: { peaks: [[120, 2.0, 5], [520, 1.5, 7], [2400, 1.6, 6]], drive: 2.4, rasp: 0.85, lope: 0.05, tail: 1.15, idle: 1080 },
+    /* 5.2 naturally aspirated V10: short equal-length pipes, a hard
+       open tail and a big high plenum. Formant-wise it is all top end. */
+    voice: { pipe: 1.98, pipe2: 2.09, head: 0.79, refl: .79, damp: 5600,
+             plenum: 340, plenumQ: 4.2, intake: 1.50, drive: 2.5, rasp: .95,
+             lope: .03, idle: 1080 },
     profile: {
       width: [.66, .92, 1.00, 1.00, 1.00, .96, .78],
       sill:  [.26, .14, .11, .11, .11, .15, .28],
@@ -365,7 +369,11 @@ const CAR_SPECS = [
     axleF: 1.48, axleR: -1.42, trackF: .80, trackR: .82,
     ducktail: { y: .98, z: .30 },
     sig: { chromeTrim: 1, roundTails: 1, fourDoor: 0 },
-    voice: { peaks: [[150, 2.2, 8], [430, 1.5, 4], [1700, 1.3, 1]], drive: 1.9, rasp: 0.35, lope: 0.10, tail: 0.95, idle: 820 },
+    /* cross-plane V8 in a long GT: mid-length pipes, a muffler still in
+       the loop softening the reflection, and a plenum tuned for torque. */
+    voice: { pipe: 2.36, pipe2: 2.49, head: 0.88, refl: .70, damp: 3600,
+             plenum: 230, plenumQ: 3.0, intake: 1.10, drive: 2.1, rasp: .45,
+             lope: .10, idle: 820 },
     profile: {
       width: [.66, .93, 1.00, 1.00, .99, .95, .78],
       sill:  [.28, .16, .13, .13, .13, .17, .30],
@@ -386,7 +394,11 @@ const CAR_SPECS = [
     axleF: 1.52, axleR: -1.48, trackF: .82, trackR: .85,
     ducktail: { y: 1.06, z: .28 },
     sig: { quadLamps: 1, hoodScoop: 1, sideExhaust: 1, bonnetPins: 1 },
-    voice: { peaks: [[96, 2.6, 11], [330, 1.5, 6], [1450, 1.1, -1]], drive: 2.2, rasp: 0.45, lope: 0.30, tail: 1.05, idle: 720 },
+    /* big-bore pushrod V8: long, fat, low-damped pipes, so the comb sits
+       low and the burble is enormous. The lope is a lumpy cam. */
+    voice: { pipe: 3.06, pipe2: 3.25, head: 1.02, refl: .75, damp: 2400,
+             plenum: 165, plenumQ: 2.4, intake: .95, drive: 2.3, rasp: .30,
+             lope: .34, idle: 700 },
     profile: {
       width: [.70, .95, 1.00, 1.00, 1.00, .96, .82],
       sill:  [.30, .19, .16, .16, .16, .20, .32],
@@ -406,7 +418,11 @@ const CAR_SPECS = [
     grilleY: .84, lightY: 1.06, lampW: .26, tailY: 1.16, tailBar: 0, deckY: 1.50,
     axleF: 1.42, axleR: -1.40, trackF: .80, trackR: .81,
     sig: { roofRails: 1, cladding: 1, skidPlates: 1, spareWheel: 1, fourDoor: 1 },
-    voice: { peaks: [[135, 2.0, 6], [470, 1.4, 3], [1600, 1.2, -3]], drive: 1.5, rasp: 0.20, lope: 0.06, tail: 0.80, idle: 780 },
+    /* family crossover: a real muffler, so the reflection is weak and
+       everything above 1.5 kHz dies inside the pipe. Deliberately dull. */
+    voice: { pipe: 2.76, pipe2: 2.86, head: 0.95, refl: .47, damp: 1500,
+             plenum: 190, plenumQ: 2.0, intake: .70, drive: 1.5, rasp: .18,
+             lope: .06, idle: 780 },
     profile: {
       width: [.72, .95, 1.00, 1.00, 1.00, .97, .84],
       sill:  [.54, .46, .44, .44, .44, .47, .56],
@@ -427,7 +443,11 @@ const CAR_SPECS = [
     axleF: 1.46, axleR: -1.40, trackF: .86, trackR: .90,
     wing: { z: .20, y: 1.14, chord: .36, h: .34, gurney: 1 },
     sig: { swanWing: 1, canards: 1, towHook: 1, bonnetPins: 1, roofScoop: 1 },
-    voice: { peaks: [[130, 1.8, 4], [640, 1.6, 8], [2900, 1.7, 8]], drive: 2.8, rasp: 1.00, lope: 0.03, tail: 1.25, idle: 1250 },
+    /* flat-plane race V8: the shortest, hardest, brightest pipes here,
+       with almost nothing absorbing the reflection. It screams. */
+    voice: { pipe: 1.81, pipe2: 1.89, head: 0.74, refl: .84, damp: 6800,
+             plenum: 380, plenumQ: 4.6, intake: 1.65, drive: 2.9, rasp: 1.05,
+             lope: .02, idle: 1250 },
     profile: {
       width: [.68, .95, 1.00, 1.00, 1.00, .98, .84],
       sill:  [.22, .10, .08, .08, .08, .12, .24],
@@ -438,7 +458,7 @@ const CAR_SPECS = [
       cabin: { z0: -1.22, z1: .54, roof: [.82, 1.02, 1.09, 1.10, 1.03, .88],
                width: [.76, .88, .91, .90, .84, .68], taper: [.36, .28, .24, .26, .32, .44] }
     },
-    phys: { cylinders: 8, sound: 'v8', mass: 1290, power: 540, redline: 9200, gears: [3.6, 2.35, 1.72, 1.34, 1.06, .86], final: 3.85, drive: 'rwd', gripF: 1.74, gripR: 1.88, cgH: .36, drag: .30, dfF: .85, dfR: 1.45, brake: 2.60, steerMax: .62 }
+    phys: { cylinders: 8, sound: 'v8f', mass: 1290, power: 540, redline: 9200, gears: [3.6, 2.35, 1.72, 1.34, 1.06, .86], final: 3.85, drive: 'rwd', gripF: 1.74, gripR: 1.88, cgH: .36, drag: .30, dfF: .85, dfR: 1.45, brake: 2.60, steerMax: .62 }
   }
 ];
 

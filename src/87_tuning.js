@@ -191,6 +191,88 @@ const Garage = {
    ============================================================ */
 function specById(id) { return CAR_SPECS.find(s => s.id === id) || CAR_SPECS[0]; }
 
+/* ============================================================
+   Exhaust and intake geometry
+
+   Everything the shop sells that could plausibly change the noise a
+   car makes is resolved here, into the handful of numbers the audio
+   waveguides actually run on: pipe lengths, how hard the open end
+   reflects, how fast the pipe eats its own top end, and the plenum
+   the intake resonates in. Bolting parts on does not layer a new
+   sound over the old one — it retunes the pipe, which is what
+   happens in a workshop.
+   ============================================================ */
+
+/* what each engine family sounds like on its own terms. A swapped
+   unit drags the car's voice toward its own without erasing it,
+   because the car keeps its bodywork, its tunnels and its tailpipes. */
+const ENGINE_VOICE = {
+  i4: { pipe: 1.92, pipe2: 2.00, head: .78, refl: .64, damp: 3400, plenum: 250, plenumQ: 3.0, intake: 1.30, drive: 2.3, rasp: .70, lope: .05, idle: 900 },
+  i6: { pipe: 2.44, pipe2: 2.55, head: .90, refl: .70, damp: 3600, plenum: 240, plenumQ: 3.2, intake: 1.20, drive: 2.0, rasp: .55, lope: .05, idle: 820 },
+  v6: { pipe: 2.30, pipe2: 2.41, head: .86, refl: .68, damp: 3300, plenum: 235, plenumQ: 2.9, intake: 1.25, drive: 2.1, rasp: .52, lope: .06, idle: 840 },
+  v8: { pipe: 2.72, pipe2: 2.88, head: .96, refl: .73, damp: 2700, plenum: 185, plenumQ: 2.6, intake: 1.00, drive: 2.3, rasp: .35, lope: .22, idle: 740 },
+  v8f: { pipe: 1.86, pipe2: 1.95, head: .76, refl: .82, damp: 6200, plenum: 360, plenumQ: 4.4, intake: 1.55, drive: 2.8, rasp: 1.00, lope: .03, idle: 1150 },
+  v10: { pipe: 1.99, pipe2: 2.10, head: .80, refl: .79, damp: 5500, plenum: 335, plenumQ: 4.1, intake: 1.48, drive: 2.5, rasp: .92, lope: .03, idle: 1050 },
+  v12: { pipe: 2.06, pipe2: 2.18, head: .82, refl: .78, damp: 5900, plenum: 320, plenumQ: 3.9, intake: 1.42, drive: 2.4, rasp: .88, lope: .02, idle: 1000 },
+  flat6: { pipe: 2.14, pipe2: 2.24, head: .84, refl: .76, damp: 4600, plenum: 290, plenumQ: 3.6, intake: 1.40, drive: 2.4, rasp: .80, lope: .04, idle: 940 },
+  rotary: { pipe: 1.74, pipe2: 1.81, head: .70, refl: .83, damp: 7400, plenum: 420, plenumQ: 5.0, intake: 1.70, drive: 3.0, rasp: 1.15, lope: .02, idle: 1150 },
+  ev: { pipe: 2.00, pipe2: 2.05, head: .80, refl: .18, damp: 900, plenum: 600, plenumQ: 6.0, intake: .30, drive: .9, rasp: .10, lope: 0, idle: 0 },
+};
+
+const VOICE_KEYS = ['pipe', 'pipe2', 'head', 'refl', 'damp', 'plenum', 'plenumQ', 'intake', 'drive', 'rasp', 'lope', 'idle'];
+
+function buildAcoustics(spec, eng, P, g) {
+  const base = spec.voice || DEFAULT_VOICE;
+  const A = {};
+  for (const k of VOICE_KEYS) A[k] = base[k] === undefined ? DEFAULT_VOICE[k] : base[k];
+
+  /* a swapped engine pulls the voice 55% of the way to its own */
+  if (eng.id !== 'stock') {
+    const E = ENGINE_VOICE[eng.sound] || ENGINE_VOICE.v8;
+    for (const k of VOICE_KEYS) A[k] = lerp(A[k], E[k], 0.55);
+  }
+
+  /* Exhaust tier. A freer system is shorter, keeps more of its top
+     end and — because there is less muffler packing left to swallow
+     the wave — reflects harder off the tail. All three move together,
+     which is why a race system is loud, sharp AND higher pitched. */
+  const ex = P.exhaust.snd || 0;
+  A.pipe *= 1 - 0.085 * ex;
+  A.pipe2 *= 1 - 0.085 * ex;
+  A.head *= 1 - 0.050 * ex;
+  A.refl = clamp(A.refl + 0.070 * ex, 0.12, 0.86);
+  A.damp *= 1 + 0.44 * ex;
+  A.drive *= 1 + 0.10 * ex;
+
+  /* Induction. A turbine sits in the exhaust stream and eats the
+     pulse energy on its way past, which is why turbo cars sound
+     softer and whooshier than the same engine without one. A blower
+     is belt-driven and never touches the exhaust at all — it only
+     pressurises the plenum. That difference is real and audible. */
+  const fk = P.forced.kind;
+  if (fk === 'turbo') {
+    A.refl *= 0.74;
+    A.damp *= 0.58;
+    A.absorb = 0.64;
+  } else {
+    A.absorb = 1;
+    if (fk === 'super') { A.plenum *= 1.26; A.plenumQ *= 1.15; }
+  }
+
+  /* Intake tier: a bigger mouth raises the Helmholtz frequency and
+     stops the airbox damping it. Forced induction always makes the
+     tract louder because there is far more air going through it. */
+  const it = g.parts.intake | 0;
+  A.plenum *= 1 + 0.065 * it;
+  A.plenumQ *= 1 + 0.20 * it;
+  A.intake *= (1 + 0.30 * it) * (fk !== 'none' ? 1.35 : 1);
+
+  /* more fuel and more timing means a harder pressure spike */
+  A.drive *= 1 + 0.055 * (g.parts.ecu | 0);
+  A.bright = 1 + 0.10 * ex;
+  return A;
+}
+
 function buildPhys(carId) {
   const spec = specById(carId);
   const g = Garage.car(carId);
@@ -207,9 +289,8 @@ function buildPhys(carId) {
   let redline = eng.id === 'stock' ? base.redline : eng.rl;
   ph.cylinders = eng.id === 'stock' ? (base.cylinders || 8) : eng.cyl;
   ph.soundType = eng.id === 'stock' ? (base.sound || 'v8') : eng.sound;
-  // the car keeps its own exhaust voice; a swap shifts it toward the new engine
-  ph.voice = spec.voice || null;
-  ph.voiceShift = eng.id === 'stock' ? 0 : 1;
+  ph.voice = spec.voice || DEFAULT_VOICE;
+  ph.acoustics = buildAcoustics(spec, eng, P, g);
 
   torque *= P.intake.tq * P.exhaust.tq * P.ecu.tq;
   redline += P.ecu.rl;
@@ -223,7 +304,9 @@ function buildPhys(carId) {
 
   ph.baseTorque = torque;
   ph.redline = redline;
-  ph.idleRpm = ph.forced === 'none' && ph.cylinders >= 10 ? 1050 : 880;
+  // idle speed comes from the car's own voice: a lumpy cam idles low and
+  // uneven, a high-strung race unit will not stay lit below a thousand
+  ph.idleRpm = clamp(ph.acoustics.idle || 880, 620, 1500);
 
   /* --- mass --- */
   let mass = base.mass + (eng.mass || 0) + (P.forced.mass || 0) + (P.exhaust.mass || 0) +
