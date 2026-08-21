@@ -1,0 +1,264 @@
+<title>Apex Drive</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+
+<canvas id="gl"></canvas>
+<div id="vignette"></div>
+<div id="scanlines"></div>
+
+<!-- ===================== LOADING ===================== -->
+<div id="load" class="screen">
+  <div class="brand">
+    <div class="brand-mark" data-txt="APEX">APEX</div>
+    <div class="brand-sub">D&nbsp;R&nbsp;I&nbsp;V&nbsp;E</div>
+  </div>
+  <div class="bar"><i id="loadbar"></i></div>
+  <div class="loadmsg" id="loadmsg">booting renderer…</div>
+</div>
+
+<!-- ===================== DEVICE PICKER ===================== -->
+<div id="devpick" class="screen hidden panel-screen">
+  <div class="panel narrow2">
+    <h2>How are you playing?</h2>
+    <p class="sub" id="devguess">Pick your controls — you can change this any time in Settings.</p>
+    <div class="devgrid">
+      <button class="devcard" data-dev="kbd">
+        <div class="devicon">⌨️</div><b>Keyboard</b>
+        <u>W A S D · Space · Shift</u>
+      </button>
+      <button class="devcard" data-dev="touch">
+        <div class="devicon">📱</div><b>Touch</b>
+        <u>On-screen pedals &amp; steering</u>
+      </button>
+      <button class="devcard" data-dev="pad">
+        <div class="devicon">🎮</div><b>Gamepad</b>
+        <u>Triggers · sticks · bumpers</u>
+      </button>
+    </div>
+
+    <div id="touchopts" class="hidden">
+      <div class="row"><label>Steering</label>
+        <div class="seg" id="steerseg">
+          <button data-v="0" class="on">Buttons</button><button data-v="1">Wheel</button><button data-v="2">Tilt</button>
+        </div>
+      </div>
+      <div class="row"><label>Throttle</label>
+        <div class="seg" id="autogasseg">
+          <button data-v="0" class="on">Manual pedal</button><button data-v="1">Auto-accelerate</button>
+        </div>
+      </div>
+    </div>
+    <div class="actions"><button class="btn" id="devgo">Start driving</button></div>
+  </div>
+</div>
+
+<!-- ===================== MAIN MENU ===================== -->
+<div id="menu" class="screen hidden">
+  <div class="menu-left">
+    <div class="brand small">
+      <div class="brand-mark" data-txt="APEX">APEX</div>
+      <div class="brand-sub">D&nbsp;R&nbsp;I&nbsp;V&nbsp;E</div>
+    </div>
+    <nav id="mainnav">
+      <button class="mi" data-act="free"><span>Free Roam</span><em>own the city</em></button>
+      <button class="mi" data-act="race"><span>Checkpoint Run</span><em>beat the clock</em></button>
+      <button class="mi" data-act="drift"><span>Drift Attack</span><em>score on the slide</em></button>
+      <button class="mi" data-act="speed"><span>Speed Trap</span><em>terminal velocity</em></button>
+      <button class="mi" data-act="shop"><span>Garage &amp; Shop</span><em>build the thing</em></button>
+      <button class="mi" data-act="settings"><span>Settings</span><em>graphics · audio · world</em></button>
+    </nav>
+    <div class="hint">
+      <b>W A S D</b> drive · <b>Space</b> handbrake · <b>Shift</b> nitrous ·
+      <b>E/Q</b> shift · <b>C</b> camera · <b>R</b> reset · <b>P</b> photo
+    </div>
+  </div>
+  <div class="menu-card" id="menucard"></div>
+</div>
+
+<!-- ===================== SHOP / GARAGE ===================== -->
+<div id="shop" class="screen hidden">
+  <header class="shophead">
+    <div class="shoptitle">GARAGE</div>
+    <div class="wallet"><u>Balance</u><b id="cash">$0</b></div>
+    <button class="xbtn" id="shopclose">✕</button>
+  </header>
+  <div class="shopbody">
+    <nav class="rail" id="shoprail"></nav>
+    <section class="shoplist" id="shoplist"></section>
+    <aside class="shopstats">
+      <div class="carname" id="sc-name">—</div>
+      <div class="carclass" id="sc-class">—</div>
+      <canvas id="dyno" width="520" height="260"></canvas>
+      <div class="statgrid" id="sc-stats"></div>
+      <div class="deltabox" id="sc-delta"></div>
+      <button class="btn wide" id="shopdrive">Hit the streets</button>
+    </aside>
+  </div>
+</div>
+
+<!-- ===================== SETTINGS ===================== -->
+<div id="settings" class="screen hidden panel-screen">
+  <div class="panel">
+    <h2>Settings</h2>
+    <div class="tabrow" id="settabs">
+      <button class="on" data-t="gfx">Graphics</button>
+      <button data-t="drv">Driving</button>
+      <button data-t="ctl">Controls</button>
+      <button data-t="wld">World</button>
+      <button data-t="snd">Audio</button>
+    </div>
+
+    <div class="tabpane" data-p="gfx">
+      <div class="row"><label>Quality</label>
+        <div class="seg" id="qseg"><button data-v="0">Low</button><button data-v="1">Medium</button><button data-v="2" class="on">High</button><button data-v="3">Ultra</button></div>
+      </div>
+      <div class="row"><label>Adaptive</label><div class="seg" id="autoq"><button data-v="0">Off</button><button data-v="1" class="on">On</button></div></div>
+      <div class="row"><label>Render scale</label><input type="range" id="rscale" min="50" max="140" value="100"><output id="rscaleo">100%</output></div>
+      <div class="row"><label>Field of view</label><input type="range" id="fov" min="55" max="110" value="74"><output id="fovo">74°</output></div>
+      <div class="row"><label>Motion blur</label><div class="seg" id="mbseg"><button data-v="0">Off</button><button data-v="1" class="on">On</button></div></div>
+      <div class="row"><label>Reflections</label><div class="seg" id="ssrseg"><button data-v="0">Off</button><button data-v="1" class="on">Screen-space</button></div></div>
+    </div>
+
+    <div class="tabpane hidden" data-p="drv">
+      <div class="row"><label>Transmission</label><div class="seg" id="transseg"><button data-v="0" class="on">Automatic</button><button data-v="1">Manual</button></div></div>
+      <div class="row"><label>Units</label><div class="seg" id="unitseg"><button data-v="0" class="on">km/h</button><button data-v="1">mph</button></div></div>
+      <div class="row"><label>Steering speed</label><input type="range" id="steerrate" min="40" max="160" value="100"><output id="steerrateo">100%</output></div>
+      <div class="row"><label>Assists</label><div class="seg" id="assistseg"><button data-v="0">Off</button><button data-v="1" class="on">Light</button><button data-v="2">Full</button></div></div>
+      <div class="row"><label>Camera shake</label><input type="range" id="shake" min="0" max="150" value="100"><output id="shakeo">100%</output></div>
+    </div>
+
+    <div class="tabpane hidden" data-p="ctl">
+      <div class="row"><label>Input device</label>
+        <div class="seg" id="devseg"><button data-v="0">Keyboard</button><button data-v="1">Touch</button><button data-v="2">Gamepad</button></div>
+      </div>
+      <div class="row"><label>Touch steering</label>
+        <div class="seg" id="steerseg2"><button data-v="0" class="on">Buttons</button><button data-v="1">Wheel</button><button data-v="2">Tilt</button></div>
+      </div>
+      <div class="row"><label>Auto-accelerate</label>
+        <div class="seg" id="autogasseg2"><button data-v="0" class="on">Off</button><button data-v="1">On</button></div>
+      </div>
+      <div class="row"><label>Tilt sensitivity</label><input type="range" id="tiltsens" min="40" max="200" value="100"><output id="tiltsenso">100%</output></div>
+      <div class="row"><label>Control size</label><input type="range" id="tsize" min="70" max="140" value="100"><output id="tsizeo">100%</output></div>
+      <div class="row"><label>Vibration</label><div class="seg" id="hapticseg"><button data-v="0">Off</button><button data-v="1" class="on">On</button></div></div>
+      <div class="keyhelp" id="keyhelp"></div>
+    </div>
+
+    <div class="tabpane hidden" data-p="wld">
+      <div class="row"><label>Time of day</label><input type="range" id="tod" min="0" max="1000" value="430"><output id="todo">day</output></div>
+      <div class="row"><label>Day cycle</label><div class="seg" id="cycleseg"><button data-v="0" class="on">Off</button><button data-v="1">Slow</button><button data-v="2">Fast</button></div></div>
+      <div class="row"><label>Weather</label><div class="seg" id="wseg"><button data-v="0" class="on">Clear</button><button data-v="1">Overcast</button><button data-v="2">Rain</button></div></div>
+      <div class="row"><label>Traffic</label><input type="range" id="traffic" min="0" max="90" value="46"><output id="traffico">46</output></div>
+    </div>
+
+    <div class="tabpane hidden" data-p="snd">
+      <div class="row"><label>Master</label><input type="range" id="vol" min="0" max="100" value="75"><output id="volo">75%</output></div>
+      <div class="row"><label>Engine</label><input type="range" id="volEng" min="0" max="150" value="100"><output id="volEngo">100%</output></div>
+      <div class="row"><label>Tyres</label><input type="range" id="volTyre" min="0" max="150" value="100"><output id="volTyreo">100%</output></div>
+      <div class="row"><label>World</label><input type="range" id="volWorld" min="0" max="150" value="100"><output id="volWorldo">100%</output></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn ghost danger" id="wipesave">Wipe save</button>
+      <button class="btn ghost" data-back>Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== HUD ===================== -->
+<div id="hud" class="hidden">
+  <div id="hud-tl">
+    <div class="mode" id="modename">FREE ROAM</div>
+    <div class="tl-rows" id="objrows"></div>
+    <div class="cashline"><u>$</u><b id="hudcash">0</b></div>
+  </div>
+
+  <div id="shiftlights"></div>
+
+  <canvas id="minimap" width="280" height="280"></canvas>
+
+  <div id="center">
+    <div id="bigmsg"></div>
+    <div id="submsg"></div>
+  </div>
+
+  <div id="driftbox" class="hidden">
+    <div class="dv" id="driftval">0</div>
+    <div class="dm" id="driftmul">x1.0</div>
+    <div class="dbar"><i id="drifttime"></i></div>
+  </div>
+
+  <div id="popups"></div>
+
+  <div id="cluster">
+    <svg id="dial" viewBox="0 0 300 300">
+      <defs>
+        <linearGradient id="gRpm" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0%" stop-color="#22e3ff"/><stop offset="55%" stop-color="#7cf37c"/>
+          <stop offset="78%" stop-color="#ffd166"/><stop offset="100%" stop-color="#ff3d68"/>
+        </linearGradient>
+        <linearGradient id="gBoost" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#2a86ff"/><stop offset="100%" stop-color="#ff3d68"/>
+        </linearGradient>
+        <filter id="glowf" x="-70%" y="-70%" width="240%" height="240%">
+          <feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <circle class="dialbg" cx="150" cy="150" r="126"/>
+      <path id="trackArc" class="track" d=""/>
+      <path id="rpmArc" class="rpm" d="" filter="url(#glowf)"/>
+      <path id="redArc" class="redzone" d=""/>
+      <path id="boostTrack" class="btrack" d=""/>
+      <path id="boostArc" class="barc" d="" filter="url(#glowf)"/>
+      <g id="ticks"></g>
+    </svg>
+    <div id="spd"><b id="spdval">0</b><i id="spdunit">km/h</i></div>
+    <div id="gear">N</div>
+    <div id="gaugefoot">
+      <div class="gline"><u>BOOST</u><b id="boostval">0.0</b><i>psi</i></div>
+      <div class="nosbar"><i id="nosfill"></i><span>NOS</span></div>
+    </div>
+  </div>
+
+  <div id="touch" class="hidden">
+    <!-- left: steering -->
+    <div class="tc steer" id="tleft"  data-ctl="left"><svg viewBox="0 0 24 24"><path d="M15 5 L7 12 L15 19"/></svg></div>
+    <div class="tc steer" id="tright" data-ctl="right"><svg viewBox="0 0 24 24"><path d="M9 5 L17 12 L9 19"/></svg></div>
+    <div class="twheel hidden" id="twheel">
+      <svg viewBox="0 0 120 120" id="twheelsvg">
+        <circle cx="60" cy="60" r="52" class="wr"/><circle cx="60" cy="60" r="16" class="wh"/>
+        <path d="M60 44 L60 8 M46 70 L18 92 M74 70 L102 92" class="ws"/>
+      </svg>
+    </div>
+    <!-- right: pedals -->
+    <div class="tc gas"   id="tgas"   data-ctl="gas">GAS</div>
+    <div class="tc brake" id="tbrake" data-ctl="brake">BRAKE</div>
+    <div class="tc small hand" id="thand" data-ctl="hand">E‑BRK</div>
+    <div class="tc small nos"  id="tnos"  data-ctl="nos">NOS</div>
+    <div class="tc shift up   hidden" id="tup"   data-ctl="up">▲</div>
+    <div class="tc shift down hidden" id="tdown" data-ctl="down">▼</div>
+    <!-- utility -->
+    <div class="tc mini" id="tcam"   data-ctl="cam">CAM</div>
+    <div class="tc mini" id="treset" data-ctl="reset">RESET</div>
+    <div class="tc mini" id="tpause" data-ctl="pause">❚❚</div>
+    <div id="tiltbar" class="hidden"><i></i></div>
+  </div>
+  </div>
+</div>
+
+<!-- ===================== PAUSE ===================== -->
+<div id="pause" class="screen hidden panel-screen">
+  <div class="panel narrow">
+    <h2>Paused</h2>
+    <div class="actions col">
+      <button class="btn" id="resume">Resume</button>
+      <button class="btn ghost" id="p-shop">Garage &amp; Shop</button>
+      <button class="btn ghost" id="p-settings">Settings</button>
+      <button class="btn ghost" id="p-menu">Main Menu</button>
+    </div>
+  </div>
+</div>
+
+<div id="photohint" class="hidden">PHOTO MODE — drag to orbit · scroll to zoom · <b>P</b> to exit</div>
+<div id="toast"></div>
+<div id="fps"></div>
+<div id="err"></div>

@@ -1,0 +1,10 @@
+# local dev only
+server.js
+.claude/
+node_modules/
+
+# screenshots captured while developing
+*.jpg
+*.png
+!docs/*.jpg
+!docs/*.png
