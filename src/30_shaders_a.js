@@ -29,6 +29,12 @@ float fbm(vec2 p){
   return s;
 }
 float fbm3(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<3;i++){ s+=a*vnoise(p); p*=2.11; a*=0.5;} return s; }
+/* The prepass packs a view normal and a linear depth into one RGBA target.
+   Depth is stored normalised by the far plane and the normal is stored
+   biased, so the same buffer works whether it is half-float or 8-bit. */
+vec3  ndNormal(vec4 nd){ return normalize(nd.xyz*2.0 - 1.0); }
+float ndDepth(vec4 nd, float far){ return nd.w*far; }
+
 // smooth box mask, used for windows / panel lines
 float boxMask(vec2 uv, vec2 half_, float soft){
   vec2 d = abs(uv) - half_;

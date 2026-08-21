@@ -2,20 +2,37 @@
 /* ============================================================
    Apex Drive — thin WebGL2 layer
    ============================================================ */
-let gl = null, GLX = { anisoExt: null, maxAniso: 1, colorBufferFloat: false, halfFloatLinear: false };
+let gl = null, GLX = {
+  anisoExt: null, maxAniso: 1, colorBufferFloat: false, halfFloatLinear: false,
+  safeMode: false,            // no float render targets -> LDR pipeline, no SSAO/SSR/shafts
+  lost: false, onLost: null
+};
 
 const ATTR = { POS: 0, NRM: 1, UV: 2, I0: 3, I1: 4, I2: 5, I3: 6, ICOL: 7, IPAR: 8 };
 const INSTANCE_FLOATS = 24; // mat4(16) + rgba(4) + params(4)
 
 function initGL(canvas) {
+  // preserveDrawingBuffer forces the browser to keep a second copy of every frame.
+  // Only the screenshot harness needs it, so it stays off unless asked for.
+  const wantShots = /[?&]shot/.test(location.search);
   const opts = {
     alpha: false, antialias: false, depth: true, stencil: false,
-    powerPreference: 'high-performance', preserveDrawingBuffer: true,
+    powerPreference: 'high-performance', preserveDrawingBuffer: wantShots,
     desynchronized: false, failIfMajorPerformanceCaveat: false
   };
   gl = canvas.getContext('webgl2', opts);
   if (!gl) throw new Error('WebGL2 is not available in this browser.');
+
+  canvas.addEventListener('webglcontextlost', e => {
+    e.preventDefault();          // without this the context can never come back
+    GLX.lost = true;
+    if (GLX.onLost) GLX.onLost();
+  }, false);
+  canvas.addEventListener('webglcontextrestored', () => { GLX.lost = false; }, false);
+
   GLX.colorBufferFloat = !!gl.getExtension('EXT_color_buffer_float');
+  // ?safe=1 forces the 8-bit pipeline so the fallback can be exercised anywhere
+  GLX.safeMode = !GLX.colorBufferFloat || /[?&]safe/.test(location.search);
   GLX.halfFloatLinear = !!gl.getExtension('OES_texture_float_linear');
   GLX.anisoExt = gl.getExtension('EXT_texture_filter_anisotropic');
   if (GLX.anisoExt) GLX.maxAniso = gl.getParameter(GLX.anisoExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
@@ -111,6 +128,26 @@ function texEmpty(w, h, internal, format, type, filter, wrap) {
   return { tex: t, target: gl.TEXTURE_2D, w, h, internal, format, type };
 }
 
+/* Half-float render targets where they exist, 8-bit where they do not.
+   Some WebGL2 devices ship without EXT_color_buffer_float and every float
+   FBO on them fails to allocate, which used to take the whole game down. */
+function rtFormat() {
+  return GLX.safeMode
+    ? { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE }
+    : { internal: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT };
+}
+
+function disposeTex(t) { if (t && t.tex) { gl.deleteTexture(t.tex); t.tex = null; } }
+
+function disposeFBO(f) {
+  if (!f) return;
+  if (f.color) for (const c of f.color) disposeTex(c);
+  if (f.depth && f.ownsDepth !== false) disposeTex(f.depth);
+  if (f.rb) gl.deleteRenderbuffer(f.rb);
+  if (f.fb) gl.deleteFramebuffer(f.fb);
+  f.fb = null; f.color = null; f.tex = null; f.depth = null;
+}
+
 function makeFBO(w, h, spec) {
   // spec: { color:[{internal,format,type,filter}], depth:'tex'|'rb'|null, depthTex: existing }
   const fb = gl.createFramebuffer();
@@ -125,12 +162,14 @@ function makeFBO(w, h, spec) {
   if (bufs.length > 1) gl.drawBuffers(bufs);
   else if (bufs.length === 0) { gl.drawBuffers([gl.NONE]); gl.readBuffer(gl.NONE); }
   let depth = spec.depthTex || null;
+  const ownsDepth = !spec.depthTex;
+  let rb = null;
   if (spec.depth === 'tex' && !depth) {
     depth = texEmpty(w, h, gl.DEPTH_COMPONENT24, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, gl.NEAREST);
   }
   if (depth) gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depth.tex, 0);
   else if (spec.depth === 'rb') {
-    const rb = gl.createRenderbuffer();
+    rb = gl.createRenderbuffer();
     gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
     gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
@@ -138,7 +177,7 @@ function makeFBO(w, h, spec) {
   const st = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   if (st !== gl.FRAMEBUFFER_COMPLETE) throw new Error('FBO incomplete 0x' + st.toString(16) + ' (' + w + 'x' + h + ')');
-  return { fb, w, h, color: colors, tex: colors[0], depth, bufs };
+  return { fb, w, h, color: colors, tex: colors[0], depth, bufs, rb, ownsDepth };
 }
 
 function bindFBO(f, clearColor) {

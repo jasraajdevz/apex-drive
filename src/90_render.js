@@ -50,6 +50,12 @@ const R = {
   },
 
   buildPrograms() {
+    // a quality change rebuilds every program; the old ones must go or they leak
+    if (this.progs) for (const k in this.progs) {
+      const pr = this.progs[k];
+      if (pr && pr.prog) gl.deleteProgram(pr.prog);
+    }
+    this.progs = {};
     const L = QUALITY[this.q].lights;
     const def = { LIGHT_COUNT: L };
     if (QUALITY[this.q].soft) def.SOFT_SHADOW = 1;
@@ -88,6 +94,11 @@ const R = {
   makeShadow() {
     const s = QUALITY[this.q].shadow;
     if (this.shadowFBO && this.shadowFBO.w === s * 3) return;
+    if (this.shadowFBO) {
+      if (this.shadowFBO.tex) gl.deleteTexture(this.shadowFBO.tex.tex);
+      gl.deleteFramebuffer(this.shadowFBO.fb);
+      this.shadowFBO = null;
+    }
     const t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, s * 3, s, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
@@ -122,7 +133,10 @@ const R = {
   },
 
   resize(force) {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // phones report devicePixelRatio 3+; rendering a full HDR pipeline at that
+    // density is what pushed weak GPUs into losing the context
+    const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+    const dpr = Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
     const W = Math.max(1, Math.round(this.canvas.clientWidth * dpr));
     const H = Math.max(1, Math.round(this.canvas.clientHeight * dpr));
     const sc = QUALITY[this.q].scale * this.userScale;
@@ -132,19 +146,35 @@ const R = {
     this.canvas.width = W; this.canvas.height = H;
     this.makeShadow();
 
-    const F = gl.RGBA16F, FMT = gl.RGBA, T = gl.HALF_FLOAT;
+    /* every one of these used to be re-allocated without freeing the previous
+       set — a few window resizes on a phone leaked hundreds of megabytes and
+       the context died, which is what the black screen actually was */
+    for (const k in this.fbo) disposeFBO(this.fbo[k]);
+    this.fbo = {};
+    if (this.bloom) for (const b2 of this.bloom) disposeFBO(b2);
+    this.bloom = [];
+
+    const RT = rtFormat();
+    const F = RT.internal, FMT = RT.format, T = RT.type;
+    const Q = QUALITY[this.q];
+    const wantSSAO = Q.ssao && !GLX.safeMode;
+    const wantSSR = this.ssrEnabled !== false && !GLX.safeMode && Q.ssao;
+
     this.fbo.pre = makeFBO(rw, rh, { color: [{ internal: F, format: FMT, type: T, filter: gl.NEAREST }], depth: 'tex' });
     this.fbo.scene = makeFBO(rw, rh, { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR }], depthTex: this.fbo.pre.depth });
     const aw = Math.max(64, rw >> 1), ah = Math.max(64, rh >> 1);
-    this.fbo.ao = makeFBO(aw, ah, { color: [{ internal: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
-    this.fbo.ao2 = makeFBO(aw, ah, { color: [{ internal: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
-    this.fbo.shaft = makeFBO(Math.max(64, aw >> 1), Math.max(64, ah >> 1), { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR }] });
-    this.fbo.ssr = makeFBO(aw, ah, { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR }] });
-    this.fbo.preHalf = makeFBO(aw, ah, { color: [{ internal: F, format: FMT, type: T, filter: gl.NEAREST }] });
-    this.fbo.ldr = makeFBO(W, H, { color: [{ internal: gl.RGBA8, format: FMT, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
-    this.bloom = [];
+    if (wantSSAO) {
+      this.fbo.ao = makeFBO(aw, ah, { color: [{ internal: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
+      this.fbo.ao2 = makeFBO(aw, ah, { color: [{ internal: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
+    }
+    if (!GLX.safeMode)
+      this.fbo.shaft = makeFBO(Math.max(64, aw >> 1), Math.max(64, ah >> 1), { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR }] });
+    if (wantSSR)
+      this.fbo.ssr = makeFBO(aw, ah, { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR }] });
+    this.fbo.ldr = makeFBO(W, H, { color: [{ internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
+
     let bw = rw >> 1, bh = rh >> 1;
-    for (let i = 0; i < QUALITY[this.q].bloomMips; i++) {
+    for (let i = 0; i < Q.bloomMips; i++) {
       if (bw < 4 || bh < 4) break;
       this.bloom.push(makeFBO(bw, bh, { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR, wrap: gl.CLAMP_TO_EDGE }] }));
       bw = Math.max(2, bw >> 1); bh = Math.max(2, bh >> 1);
@@ -393,31 +423,31 @@ const R = {
     gl.disable(gl.POLYGON_OFFSET_FILL);
 
     /* ---- 2. depth + normal prepass ---- */
-    bindFBO(this.fbo.pre, [0, 0, -1, 0]);
+    bindFBO(this.fbo.pre, [0.5, 0.5, 0.5, 0]);
     gl.depthMask(true); gl.depthFunc(gl.LESS);
-    gl.clearColor(0, 0, -1, 0);
+    gl.clearColor(0.5, 0.5, 0.5, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const pp = this.progs.pre.use();
-    pp.m4('uVP', this.vp).m4('uView', this.view);
+    pp.m4('uVP', this.vp).m4('uView', this.view).f('uInvFar', 1 / this.cam.far);
     this.drawWorld(pp, null, false);
     this.drawActors(scene.batches);
 
     /* ---- 3. SSAO ---- */
     let aoTex = this.aoWhite;
-    if (Q.ssao) {
+    if (Q.ssao && this.fbo.ao) {
       gl.disable(gl.DEPTH_TEST); gl.depthMask(false);
       bindFBO(this.fbo.ao);
       const ap = this.progs.ssao.use();
       ap.tex('uND', this.fbo.pre.tex, 0).v2('uRes', this.fbo.ao.w, this.fbo.ao.h)
-        .m4('uProj', this.proj).f('uRadius', 1.15).f('uIntensity', 0.85).f('uBias', 0.030).f('uTime', this.time);
+        .m4('uProj', this.proj).f('uFar', this.cam.far).f('uRadius', 1.15).f('uIntensity', 0.85).f('uBias', 0.030).f('uTime', this.time);
       drawFullscreen();
       const bp = this.progs.blur.use();
       bindFBO(this.fbo.ao2);
       bp.tex('uTex', this.fbo.ao.tex, 0).tex('uND', this.fbo.pre.tex, 1)
-        .v2('uDir', 1, 0).v2('uRes', this.fbo.ao.w, this.fbo.ao.h);
+        .v2('uDir', 1, 0).v2('uRes', this.fbo.ao.w, this.fbo.ao.h).f('uFar', this.cam.far);
       drawFullscreen();
       bindFBO(this.fbo.ao);
-      bp.tex('uTex', this.fbo.ao2.tex, 0).tex('uND', this.fbo.pre.tex, 1).v2('uDir', 0, 1);
+      bp.tex('uTex', this.fbo.ao2.tex, 0).tex('uND', this.fbo.pre.tex, 1).v2('uDir', 0, 1).f('uFar', this.cam.far);
       drawFullscreen();
       aoTex = this.fbo.ao.tex;
       gl.enable(gl.DEPTH_TEST);
@@ -436,7 +466,7 @@ const R = {
       .tex('uEnv', this.env, 1)
       .tex('uAO', aoTex, 2)
       .f('uEnvMips', this.envMips)
-      .f('uAOEnabled', Q.ssao ? 1 : 0)
+      .f('uAOEnabled', (Q.ssao && this.fbo.ao) ? 1 : 0)
       .f('uShadowTexel', 1 / this.shadowFBO.cell)
       .f('uShadowStrength', this.sky.shadowStrength)
       .v3a('uAmbSky', this.sky.ambSky).v3a('uAmbGround', this.sky.ambGrd)
@@ -460,7 +490,7 @@ const R = {
     gl.enable(gl.CULL_FACE);
 
     /* ---- 5b. screen-space reflections on standing water ---- */
-    if (this.ssrEnabled && this.wet > 0.02 && QUALITY[this.q].ssao) {
+    if (this.ssrEnabled && this.wet > 0.02 && this.fbo.ssr && this.fbo.ssr.fb) {
       gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.BLEND);
       bindFBO(this.fbo.ssr);
       gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
@@ -468,7 +498,7 @@ const R = {
       if (!this._invView) this._invView = M4.n();
       M4.invert(this._invView, this.view);
       rp.tex('uND', this.fbo.pre.tex, 0).tex('uScene', this.fbo.scene.tex, 1)
-        .m4('uProj', this.proj).m4('uInvView', this._invView)
+        .m4('uProj', this.proj).m4('uInvView', this._invView).f('uFar', this.cam.far)
         .v2('uRes', this.fbo.ssr.w, this.fbo.ssr.h)
         .f('uWet', this.wet).f('uTime', this.time).f('uIntensity', 1.0).v3a('uCamPos', this.cam.pos);
       drawFullscreen();
@@ -516,7 +546,7 @@ const R = {
     /* ---- 8b. god rays from the sun ---- */
     gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.BLEND);
     let shaftAmt = 0;
-    if (this.shaftAmount > 0.01 && this.fbo.shaft) {
+    if (this.shaftAmount > 0.01 && this.fbo.shaft && this.fbo.shaft.fb) {
       // project the sun onto the screen
       const d = this.sky.dir;
       const sp = [this.cam.pos[0] + d[0] * 900, this.cam.pos[1] + d[1] * 900, this.cam.pos[2] + d[2] * 900];
@@ -533,7 +563,7 @@ const R = {
           bindFBO(this.fbo.shaft);
           const shp = this.progs.shaft.use();
           shp.tex('uScene', this.fbo.scene.tex, 0).tex('uND', this.fbo.pre.tex, 1)
-            .v2('uSun', sx, sy).f('uAmount', 1.0).f('uOnScreen', onScreen);
+            .v2('uSun', sx, sy).f('uAmount', 1.0).f('uOnScreen', onScreen).f('uFar', this.cam.far);
           drawFullscreen();
           shaftAmt = this.shaftAmount * onScreen;
         }
@@ -548,7 +578,7 @@ const R = {
       bindFBO(bl[0]);
       const pf = this.progs.bpre.use();
       pf.tex('uTex', this.fbo.scene.tex, 0).v2('uTexel', 1 / this.rw, 1 / this.rh)
-        .f('uThreshold', 1.05).f('uKnee', 0.55);
+        .f('uThreshold', GLX.safeMode ? 0.70 : 1.05).f('uKnee', GLX.safeMode ? 0.30 : 0.55);
       drawFullscreen();
       const dn = this.progs.bdown.use();
       for (let i = 1; i < bl.length; i++) {
@@ -625,7 +655,7 @@ const R = {
     const upv = [this.view[1], this.view[5], this.view[9]];
     const prog = this.progs.part.use();
     prog.m4('uVP', this.vp).v3a('uCamR', right).v3a('uCamU', upv).v3a('uCamPos', this.cam.pos)
-      .tex('uND', this.fbo.pre.tex, 0).v2('uRes', this.rw, this.rh).f('uSoftEnabled', 1);
+      .tex('uND', this.fbo.pre.tex, 0).v2('uRes', this.rw, this.rh).f('uSoftEnabled', 1).f('uFar', this.cam.far);
     gl.enable(gl.BLEND);
     gl.depthMask(false);
     gl.disable(gl.CULL_FACE);

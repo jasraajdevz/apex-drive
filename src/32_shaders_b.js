@@ -45,8 +45,9 @@ void main(){
 SH.preFS = `
 precision highp float;
 in vec3 vVN; in float vVD;
+uniform float uInvFar;
 out vec4 oND;
-void main(){ oND = vec4(normalize(vVN), vVD); }
+void main(){ oND = vec4(normalize(vVN)*0.5 + 0.5, vVD*uInvFar); }
 `;
 
 /* ---------------- shadow depth ---------------- */
@@ -71,6 +72,7 @@ in vec2 vUV;
 uniform sampler2D uND;
 uniform vec2 uRes;
 uniform mat4 uProj;
+uniform float uFar;
 uniform float uRadius, uIntensity, uBias;
 uniform float uTime;
 out vec4 oCol;
@@ -81,10 +83,10 @@ vec3 viewPosFromUV(vec2 uv, float d){
 }
 void main(){
   vec4 nd = texture(uND, vUV);
-  float depth = nd.w;
+  float depth = ndDepth(nd, uFar);
   if(depth <= 0.0001 || depth > 900.0){ oCol = vec4(1.0); return; }
   vec3 P = viewPosFromUV(vUV, depth);
-  vec3 N = normalize(nd.xyz);
+  vec3 N = ndNormal(nd);
   float ang = hash12(floor(gl_FragCoord.xy))*6.2831853;
   float ca = cos(ang), sa = sin(ang);
   float radius = uRadius;
@@ -105,7 +107,7 @@ void main(){
     vec4 cp = uProj*vec4(sp,1.0);
     vec2 suv = (cp.xy/cp.w)*0.5+0.5;
     if(suv.x<0.0||suv.x>1.0||suv.y<0.0||suv.y>1.0) continue;
-    float sd = texture(uND, suv).w;
+    float sd = ndDepth(texture(uND, suv), uFar);
     float diff = (-sp.z) - sd;
     float rangeCheck = smoothstep(0.0,1.0, radius/max(abs(depth-sd),1e-4));
     occ += step(uBias, diff)*rangeCheck;
@@ -119,18 +121,21 @@ void main(){
 `;
 SH.blurFS = `
 precision highp float;
+vec3  ndNormal(vec4 nd){ return normalize(nd.xyz*2.0 - 1.0); }
+float ndDepth(vec4 nd, float far){ return nd.w*far; }
 in vec2 vUV;
 uniform sampler2D uTex;
 uniform sampler2D uND;
 uniform vec2 uDir;
 uniform vec2 uRes;
+uniform float uFar;
 out vec4 oCol;
 void main(){
-  float c = texture(uND, vUV).w;
+  float c = ndDepth(texture(uND, vUV), uFar);
   float sum = 0.0, wsum = 0.0;
   for(int i=-4;i<=4;i++){
     vec2 uv = vUV + uDir*float(i)/uRes;
-    float d = texture(uND, uv).w;
+    float d = ndDepth(texture(uND, uv), uFar);
     float w = exp(-abs(d-c)*0.55)*exp(-float(i*i)*0.16);
     sum += texture(uTex, uv).r*w; wsum += w;
   }
@@ -172,7 +177,8 @@ void main(){
 SH.ssrFS = `
 ${SH.common}
 in vec2 vUV;
-uniform sampler2D uND;      // xyz = view normal, w = linear view depth
+uniform sampler2D uND;      // xyz = biased view normal, w = depth / far
+uniform float uFar;
 uniform sampler2D uScene;   // HDR opaque + sky
 uniform mat4 uProj, uInvView;
 uniform vec2 uRes;
@@ -193,9 +199,9 @@ void main(){
   oCol = vec4(0.0);
   if(uWet < 0.02) return;
   vec4 nd = texture(uND, vUV);
-  float depth = nd.w;
+  float depth = ndDepth(nd, uFar);
   if(depth <= 0.001 || depth > 220.0) return;
-  vec3 N = normalize(nd.xyz);
+  vec3 N = ndNormal(nd);
   // only near-horizontal surfaces get standing water
   vec3 wN = mat3(uInvView)*N;
   float flat_ = smoothstep(0.72, 0.93, wN.y);
@@ -226,7 +232,7 @@ void main(){
     stepLen *= 1.09;
     vec2 uv = projectUV(p);
     if(uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
-    float sd = texture(uND, uv).w;
+    float sd = ndDepth(texture(uND, uv), uFar);
     if(sd <= 0.001) continue;
     float pd = -p.z;
     float diff = pd - sd;
@@ -236,7 +242,7 @@ void main(){
       for(int j=0;j<5;j++){
         vec3 m = (a+b)*0.5;
         vec2 muv = projectUV(m);
-        float msd = texture(uND, muv).w;
+        float msd = ndDepth(texture(uND, muv), uFar);
         if(-m.z - msd > 0.02) b = m; else a = m;
       }
       hitUV = projectUV((a+b)*0.5);
@@ -352,7 +358,7 @@ in vec2 vUV;
 uniform sampler2D uScene;
 uniform sampler2D uND;
 uniform vec2 uSun;          // sun position in screen uv
-uniform float uAmount, uOnScreen;
+uniform float uAmount, uOnScreen, uFar;
 out vec4 oCol;
 void main(){
   if(uAmount <= 0.001 || uOnScreen <= 0.001){ oCol = vec4(0.0); return; }
@@ -369,8 +375,8 @@ void main(){
     vec2 uv = vUV + dir*density*t;
     if(uv.x<0.0||uv.x>1.0||uv.y<0.0||uv.y>1.0) break;
     // only unoccluded sky contributes to a shaft
-    float d = texture(uND, uv).w;
-    float sky = step(d, 0.001);
+    float d = texture(uND, uv).w;      // still normalised here, 0 == sky
+    float sky = step(d, 0.00002);
     vec3 c = texture(uScene, uv).rgb;
     float lw = (1.0 - t)*(1.0 - t);
     acc += c*sky*lw;
@@ -541,6 +547,7 @@ in vec2 vQ; in vec4 vCol; in vec4 vPar; in float vKind; in float vSeed; in vec3 
 uniform sampler2D uND;
 uniform vec2 uRes;
 uniform float uSoftEnabled;
+uniform float uFar;
 uniform vec3 uCamPos;
 out vec4 oCol;
 void main(){
@@ -564,7 +571,7 @@ void main(){
   }
   if(a <= 0.003) discard;
   if(uSoftEnabled > 0.5){
-    float sceneD = texture(uND, gl_FragCoord.xy/uRes).w;
+    float sceneD = ndDepth(texture(uND, gl_FragCoord.xy/uRes), uFar);
     float myD = distance(uCamPos, vWP);
     if(sceneD > 0.0) a *= sat((sceneD-myD)/max(vPar.x,0.05));
   }

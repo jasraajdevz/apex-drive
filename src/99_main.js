@@ -117,7 +117,16 @@ const Game = {
     const frame = () => new Promise(r => setTimeout(r, 16));
 
     setLoad(.05, 'starting renderer'); await frame();
+    // a phone should not open on the same preset as a desktop GPU
+    const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+    const small = Math.min(innerWidth, innerHeight) < 500;
+    if (coarse) this.settings.quality = small ? 0 : 1;
+    R.q = this.settings.quality;
     R.init(canvas);
+    if (GLX.safeMode) {
+      this.settings.ssr = 0; R.ssrEnabled = false;
+      this.toastQueue = 'Reduced graphics mode — this device has no float render targets';
+    }
     R.userScale = this.settings.scale;
     R.updateSky(this.settings.tod, this.settings.weather, .016);
 
@@ -171,6 +180,7 @@ const Game = {
       $('menu').classList.remove('hidden');
       this.updateMenuCard();
       Controls.apply();
+      if (this.toastQueue) { this.toast(this.toastQueue, 'bad'); this.toastQueue = null; }
       const h = document.querySelector('#menu .hint');
       if (h) h.innerHTML = Controls.helpHTML();
     });
@@ -325,7 +335,26 @@ const Game = {
     rng('volTyre', 'volTyreo', v => S.volTyre = v / 100, v => v + '%');
     rng('volWorld', 'volWorldo', v => S.volWorld = v / 100, v => v + '%');
 
-    addEventListener('resize', () => R.resize());
+    // mobile browsers fire resize every time the address bar slides; each one
+    // used to reallocate the entire render target set
+    let rzT = 0;
+    addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => R.resize(), 180); });
+
+    GLX.onLost = () => {
+      _running = false;
+      let el = $('ctxlost');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'ctxlost';
+        el.innerHTML = '<div class="panel narrow"><h2>Graphics reset</h2>' +
+          '<p class="sub">The browser dropped the WebGL context. Reloading puts you straight back.</p>' +
+          '<div class="actions col"><button class="btn" id="ctxreload">Reload</button></div></div>';
+        el.className = 'screen panel-screen';
+        document.body.appendChild(el);
+        $('ctxreload').onclick = () => location.reload();
+      }
+      el.classList.remove('hidden');
+    };
 
     const cv = $('gl');
     let drag = false, lx = 0, ly = 0;
@@ -1124,14 +1153,32 @@ const Game = {
   },
 
   autoQuality(fps) {
-    if (!this.settings.auto || this.state !== 'play') return;
+    // this read settings.auto, which does not exist — the setting is autoq — so
+    // adaptive quality silently never ran and the game could not climb out of a
+    // bad frame rate on its own
+    if (!this.settings.autoq || this.state !== 'play' || this.countdown > 0) return;
+    const now = this.time;
+    if (now < (this._qCooldown || 0)) { this._fpsHist = []; return; }
+
     this._fpsHist = this._fpsHist || [];
     this._fpsHist.push(fps);
-    if (this._fpsHist.length < 6) return;
-    const avg = this._fpsHist.reduce((a, b) => a + b, 0) / this._fpsHist.length;
+    if (this._fpsHist.length < 4) return;
+    const avg = this._fpsHist.reduce((x, y) => x + y, 0) / this._fpsHist.length;
     this._fpsHist.length = 0;
-    if (avg < 26 && R.q > 0) { R.setQuality(R.q - 1); HUD.popup('GRAPHICS ↓ ' + QUALITY[R.q].name, '#8ea3bd'); this.syncQualityUI(); }
-    else if (avg > 85 && R.q < 3 && !this._qLocked) { R.setQuality(R.q + 1); this.syncQualityUI(); }
+
+    // wide dead band plus a cooldown: without them the two thresholds sat close
+    // enough that one slow frame flipped the quality back and forth forever
+    if (avg < 24 && R.q > 0) {
+      R.setQuality(R.q - 1);
+      this._qFloor = true;                 // never climb back past a downgrade
+      this._qCooldown = now + 8;
+      HUD.popup('GRAPHICS ↓ ' + QUALITY[R.q].name, '#8ba1bd');
+      this.syncQualityUI();
+    } else if (avg > 92 && R.q < 3 && !this._qFloor) {
+      R.setQuality(R.q + 1);
+      this._qCooldown = now + 12;
+      this.syncQualityUI();
+    }
   },
 
   syncQualityUI() {
@@ -1152,7 +1199,13 @@ const Game = {
    requestAnimationFrame drives the game normally; a watchdog interval keeps it
    ticking when rAF is throttled (background tab, non-compositing preview pane). */
 let _last = performance.now(), _lastFrameAt = 0, _accWall = 0, _fpsN = 0;
+let _running = true, _inStep = false;
+
 function step() {
+  // the watchdog and requestAnimationFrame can both land here; re-entering
+  // would render the same frame twice and double the GPU load
+  if (_inStep || !_running || GLX.lost) return;
+  _inStep = true;
   const now = performance.now();
   let wall = now - _last;
   let dt = wall / 1000;
@@ -1167,13 +1220,28 @@ function step() {
     const fps = _fpsN * 1000 / _accWall;
     _fpsN = 0; _accWall = 0;
     if (HUD.el.fps) HUD.el.fps.textContent =
-      fps.toFixed(0) + ' fps  ·  ' + QUALITY[R.q].name + '  ·  ' + R.rw + '×' + R.rh;
+      fps.toFixed(0) + ' fps  ·  ' + QUALITY[R.q].name + '  ·  ' + R.rw + '×' + R.rh +
+      (GLX.safeMode ? '  ·  safe' : '');
     Game.autoQuality(fps);
   }
+  _inStep = false;
 }
-function raf() { step(); requestAnimationFrame(raf); }
+
+function raf() { step(); if (_running) requestAnimationFrame(raf); }
 
 Game.boot().then(() => {
   requestAnimationFrame(raf);
-  setInterval(() => { if (performance.now() - _lastFrameAt > 45) step(); }, 16);
-}).catch(e => showErr('boot: ' + (e.stack || e.message)));
+  // Only a cover for requestAnimationFrame being starved outright — a background
+  // tab or a throttled preview. At 45ms it fired constantly on any machine below
+  // 22fps and drove a second, un-vsynced render loop on top of rAF.
+  setInterval(() => { if (_running && performance.now() - _lastFrameAt > 400) step(); }, 250);
+  document.addEventListener('visibilitychange', () => { _last = performance.now(); });
+}).catch(e => {
+  const l = $('load');
+  if (l) {
+    l.classList.remove('hidden');
+    const m = $('loadmsg');
+    if (m) { m.textContent = 'could not start — see the message below'; m.style.color = '#ffb2c0'; }
+  }
+  showErr('boot: ' + (e.stack || e.message));
+});

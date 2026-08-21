@@ -946,20 +946,37 @@ function srgb2lin(c) { return c.map(v => v <= .04045 ? v / 12.92 : Math.pow((v +
 /* ============================================================
    Apex Drive — thin WebGL2 layer
    ============================================================ */
-let gl = null, GLX = { anisoExt: null, maxAniso: 1, colorBufferFloat: false, halfFloatLinear: false };
+let gl = null, GLX = {
+  anisoExt: null, maxAniso: 1, colorBufferFloat: false, halfFloatLinear: false,
+  safeMode: false,            // no float render targets -> LDR pipeline, no SSAO/SSR/shafts
+  lost: false, onLost: null
+};
 
 const ATTR = { POS: 0, NRM: 1, UV: 2, I0: 3, I1: 4, I2: 5, I3: 6, ICOL: 7, IPAR: 8 };
 const INSTANCE_FLOATS = 24; // mat4(16) + rgba(4) + params(4)
 
 function initGL(canvas) {
+  // preserveDrawingBuffer forces the browser to keep a second copy of every frame.
+  // Only the screenshot harness needs it, so it stays off unless asked for.
+  const wantShots = /[?&]shot/.test(location.search);
   const opts = {
     alpha: false, antialias: false, depth: true, stencil: false,
-    powerPreference: 'high-performance', preserveDrawingBuffer: true,
+    powerPreference: 'high-performance', preserveDrawingBuffer: wantShots,
     desynchronized: false, failIfMajorPerformanceCaveat: false
   };
   gl = canvas.getContext('webgl2', opts);
   if (!gl) throw new Error('WebGL2 is not available in this browser.');
+
+  canvas.addEventListener('webglcontextlost', e => {
+    e.preventDefault();          // without this the context can never come back
+    GLX.lost = true;
+    if (GLX.onLost) GLX.onLost();
+  }, false);
+  canvas.addEventListener('webglcontextrestored', () => { GLX.lost = false; }, false);
+
   GLX.colorBufferFloat = !!gl.getExtension('EXT_color_buffer_float');
+  // ?safe=1 forces the 8-bit pipeline so the fallback can be exercised anywhere
+  GLX.safeMode = !GLX.colorBufferFloat || /[?&]safe/.test(location.search);
   GLX.halfFloatLinear = !!gl.getExtension('OES_texture_float_linear');
   GLX.anisoExt = gl.getExtension('EXT_texture_filter_anisotropic');
   if (GLX.anisoExt) GLX.maxAniso = gl.getParameter(GLX.anisoExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
@@ -1055,6 +1072,26 @@ function texEmpty(w, h, internal, format, type, filter, wrap) {
   return { tex: t, target: gl.TEXTURE_2D, w, h, internal, format, type };
 }
 
+/* Half-float render targets where they exist, 8-bit where they do not.
+   Some WebGL2 devices ship without EXT_color_buffer_float and every float
+   FBO on them fails to allocate, which used to take the whole game down. */
+function rtFormat() {
+  return GLX.safeMode
+    ? { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE }
+    : { internal: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT };
+}
+
+function disposeTex(t) { if (t && t.tex) { gl.deleteTexture(t.tex); t.tex = null; } }
+
+function disposeFBO(f) {
+  if (!f) return;
+  if (f.color) for (const c of f.color) disposeTex(c);
+  if (f.depth && f.ownsDepth !== false) disposeTex(f.depth);
+  if (f.rb) gl.deleteRenderbuffer(f.rb);
+  if (f.fb) gl.deleteFramebuffer(f.fb);
+  f.fb = null; f.color = null; f.tex = null; f.depth = null;
+}
+
 function makeFBO(w, h, spec) {
   // spec: { color:[{internal,format,type,filter}], depth:'tex'|'rb'|null, depthTex: existing }
   const fb = gl.createFramebuffer();
@@ -1069,12 +1106,14 @@ function makeFBO(w, h, spec) {
   if (bufs.length > 1) gl.drawBuffers(bufs);
   else if (bufs.length === 0) { gl.drawBuffers([gl.NONE]); gl.readBuffer(gl.NONE); }
   let depth = spec.depthTex || null;
+  const ownsDepth = !spec.depthTex;
+  let rb = null;
   if (spec.depth === 'tex' && !depth) {
     depth = texEmpty(w, h, gl.DEPTH_COMPONENT24, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, gl.NEAREST);
   }
   if (depth) gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depth.tex, 0);
   else if (spec.depth === 'rb') {
-    const rb = gl.createRenderbuffer();
+    rb = gl.createRenderbuffer();
     gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
     gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
@@ -1082,7 +1121,7 @@ function makeFBO(w, h, spec) {
   const st = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   if (st !== gl.FRAMEBUFFER_COMPLETE) throw new Error('FBO incomplete 0x' + st.toString(16) + ' (' + w + 'x' + h + ')');
-  return { fb, w, h, color: colors, tex: colors[0], depth, bufs };
+  return { fb, w, h, color: colors, tex: colors[0], depth, bufs, rb, ownsDepth };
 }
 
 function bindFBO(f, clearColor) {
@@ -1278,6 +1317,12 @@ float fbm(vec2 p){
   return s;
 }
 float fbm3(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<3;i++){ s+=a*vnoise(p); p*=2.11; a*=0.5;} return s; }
+/* The prepass packs a view normal and a linear depth into one RGBA target.
+   Depth is stored normalised by the far plane and the normal is stored
+   biased, so the same buffer works whether it is half-float or 8-bit. */
+vec3  ndNormal(vec4 nd){ return normalize(nd.xyz*2.0 - 1.0); }
+float ndDepth(vec4 nd, float far){ return nd.w*far; }
+
 // smooth box mask, used for windows / panel lines
 float boxMask(vec2 uv, vec2 half_, float soft){
   vec2 d = abs(uv) - half_;
@@ -1903,8 +1948,9 @@ void main(){
 SH.preFS = `
 precision highp float;
 in vec3 vVN; in float vVD;
+uniform float uInvFar;
 out vec4 oND;
-void main(){ oND = vec4(normalize(vVN), vVD); }
+void main(){ oND = vec4(normalize(vVN)*0.5 + 0.5, vVD*uInvFar); }
 `;
 
 /* ---------------- shadow depth ---------------- */
@@ -1929,6 +1975,7 @@ in vec2 vUV;
 uniform sampler2D uND;
 uniform vec2 uRes;
 uniform mat4 uProj;
+uniform float uFar;
 uniform float uRadius, uIntensity, uBias;
 uniform float uTime;
 out vec4 oCol;
@@ -1939,10 +1986,10 @@ vec3 viewPosFromUV(vec2 uv, float d){
 }
 void main(){
   vec4 nd = texture(uND, vUV);
-  float depth = nd.w;
+  float depth = ndDepth(nd, uFar);
   if(depth <= 0.0001 || depth > 900.0){ oCol = vec4(1.0); return; }
   vec3 P = viewPosFromUV(vUV, depth);
-  vec3 N = normalize(nd.xyz);
+  vec3 N = ndNormal(nd);
   float ang = hash12(floor(gl_FragCoord.xy))*6.2831853;
   float ca = cos(ang), sa = sin(ang);
   float radius = uRadius;
@@ -1963,7 +2010,7 @@ void main(){
     vec4 cp = uProj*vec4(sp,1.0);
     vec2 suv = (cp.xy/cp.w)*0.5+0.5;
     if(suv.x<0.0||suv.x>1.0||suv.y<0.0||suv.y>1.0) continue;
-    float sd = texture(uND, suv).w;
+    float sd = ndDepth(texture(uND, suv), uFar);
     float diff = (-sp.z) - sd;
     float rangeCheck = smoothstep(0.0,1.0, radius/max(abs(depth-sd),1e-4));
     occ += step(uBias, diff)*rangeCheck;
@@ -1977,18 +2024,21 @@ void main(){
 `;
 SH.blurFS = `
 precision highp float;
+vec3  ndNormal(vec4 nd){ return normalize(nd.xyz*2.0 - 1.0); }
+float ndDepth(vec4 nd, float far){ return nd.w*far; }
 in vec2 vUV;
 uniform sampler2D uTex;
 uniform sampler2D uND;
 uniform vec2 uDir;
 uniform vec2 uRes;
+uniform float uFar;
 out vec4 oCol;
 void main(){
-  float c = texture(uND, vUV).w;
+  float c = ndDepth(texture(uND, vUV), uFar);
   float sum = 0.0, wsum = 0.0;
   for(int i=-4;i<=4;i++){
     vec2 uv = vUV + uDir*float(i)/uRes;
-    float d = texture(uND, uv).w;
+    float d = ndDepth(texture(uND, uv), uFar);
     float w = exp(-abs(d-c)*0.55)*exp(-float(i*i)*0.16);
     sum += texture(uTex, uv).r*w; wsum += w;
   }
@@ -2030,7 +2080,8 @@ void main(){
 SH.ssrFS = `
 ${SH.common}
 in vec2 vUV;
-uniform sampler2D uND;      // xyz = view normal, w = linear view depth
+uniform sampler2D uND;      // xyz = biased view normal, w = depth / far
+uniform float uFar;
 uniform sampler2D uScene;   // HDR opaque + sky
 uniform mat4 uProj, uInvView;
 uniform vec2 uRes;
@@ -2051,9 +2102,9 @@ void main(){
   oCol = vec4(0.0);
   if(uWet < 0.02) return;
   vec4 nd = texture(uND, vUV);
-  float depth = nd.w;
+  float depth = ndDepth(nd, uFar);
   if(depth <= 0.001 || depth > 220.0) return;
-  vec3 N = normalize(nd.xyz);
+  vec3 N = ndNormal(nd);
   // only near-horizontal surfaces get standing water
   vec3 wN = mat3(uInvView)*N;
   float flat_ = smoothstep(0.72, 0.93, wN.y);
@@ -2084,7 +2135,7 @@ void main(){
     stepLen *= 1.09;
     vec2 uv = projectUV(p);
     if(uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
-    float sd = texture(uND, uv).w;
+    float sd = ndDepth(texture(uND, uv), uFar);
     if(sd <= 0.001) continue;
     float pd = -p.z;
     float diff = pd - sd;
@@ -2094,7 +2145,7 @@ void main(){
       for(int j=0;j<5;j++){
         vec3 m = (a+b)*0.5;
         vec2 muv = projectUV(m);
-        float msd = texture(uND, muv).w;
+        float msd = ndDepth(texture(uND, muv), uFar);
         if(-m.z - msd > 0.02) b = m; else a = m;
       }
       hitUV = projectUV((a+b)*0.5);
@@ -2210,7 +2261,7 @@ in vec2 vUV;
 uniform sampler2D uScene;
 uniform sampler2D uND;
 uniform vec2 uSun;          // sun position in screen uv
-uniform float uAmount, uOnScreen;
+uniform float uAmount, uOnScreen, uFar;
 out vec4 oCol;
 void main(){
   if(uAmount <= 0.001 || uOnScreen <= 0.001){ oCol = vec4(0.0); return; }
@@ -2227,8 +2278,8 @@ void main(){
     vec2 uv = vUV + dir*density*t;
     if(uv.x<0.0||uv.x>1.0||uv.y<0.0||uv.y>1.0) break;
     // only unoccluded sky contributes to a shaft
-    float d = texture(uND, uv).w;
-    float sky = step(d, 0.001);
+    float d = texture(uND, uv).w;      // still normalised here, 0 == sky
+    float sky = step(d, 0.00002);
     vec3 c = texture(uScene, uv).rgb;
     float lw = (1.0 - t)*(1.0 - t);
     acc += c*sky*lw;
@@ -2399,6 +2450,7 @@ in vec2 vQ; in vec4 vCol; in vec4 vPar; in float vKind; in float vSeed; in vec3 
 uniform sampler2D uND;
 uniform vec2 uRes;
 uniform float uSoftEnabled;
+uniform float uFar;
 uniform vec3 uCamPos;
 out vec4 oCol;
 void main(){
@@ -2422,7 +2474,7 @@ void main(){
   }
   if(a <= 0.003) discard;
   if(uSoftEnabled > 0.5){
-    float sceneD = texture(uND, gl_FragCoord.xy/uRes).w;
+    float sceneD = ndDepth(texture(uND, gl_FragCoord.xy/uRes), uFar);
     float myD = distance(uCamPos, vWP);
     if(sceneD > 0.0) a *= sat((sceneD-myD)/max(vPar.x,0.05));
   }
@@ -6030,6 +6082,12 @@ const R = {
   },
 
   buildPrograms() {
+    // a quality change rebuilds every program; the old ones must go or they leak
+    if (this.progs) for (const k in this.progs) {
+      const pr = this.progs[k];
+      if (pr && pr.prog) gl.deleteProgram(pr.prog);
+    }
+    this.progs = {};
     const L = QUALITY[this.q].lights;
     const def = { LIGHT_COUNT: L };
     if (QUALITY[this.q].soft) def.SOFT_SHADOW = 1;
@@ -6068,6 +6126,11 @@ const R = {
   makeShadow() {
     const s = QUALITY[this.q].shadow;
     if (this.shadowFBO && this.shadowFBO.w === s * 3) return;
+    if (this.shadowFBO) {
+      if (this.shadowFBO.tex) gl.deleteTexture(this.shadowFBO.tex.tex);
+      gl.deleteFramebuffer(this.shadowFBO.fb);
+      this.shadowFBO = null;
+    }
     const t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, s * 3, s, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
@@ -6102,7 +6165,10 @@ const R = {
   },
 
   resize(force) {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // phones report devicePixelRatio 3+; rendering a full HDR pipeline at that
+    // density is what pushed weak GPUs into losing the context
+    const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+    const dpr = Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
     const W = Math.max(1, Math.round(this.canvas.clientWidth * dpr));
     const H = Math.max(1, Math.round(this.canvas.clientHeight * dpr));
     const sc = QUALITY[this.q].scale * this.userScale;
@@ -6112,19 +6178,35 @@ const R = {
     this.canvas.width = W; this.canvas.height = H;
     this.makeShadow();
 
-    const F = gl.RGBA16F, FMT = gl.RGBA, T = gl.HALF_FLOAT;
+    /* every one of these used to be re-allocated without freeing the previous
+       set — a few window resizes on a phone leaked hundreds of megabytes and
+       the context died, which is what the black screen actually was */
+    for (const k in this.fbo) disposeFBO(this.fbo[k]);
+    this.fbo = {};
+    if (this.bloom) for (const b2 of this.bloom) disposeFBO(b2);
+    this.bloom = [];
+
+    const RT = rtFormat();
+    const F = RT.internal, FMT = RT.format, T = RT.type;
+    const Q = QUALITY[this.q];
+    const wantSSAO = Q.ssao && !GLX.safeMode;
+    const wantSSR = this.ssrEnabled !== false && !GLX.safeMode && Q.ssao;
+
     this.fbo.pre = makeFBO(rw, rh, { color: [{ internal: F, format: FMT, type: T, filter: gl.NEAREST }], depth: 'tex' });
     this.fbo.scene = makeFBO(rw, rh, { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR }], depthTex: this.fbo.pre.depth });
     const aw = Math.max(64, rw >> 1), ah = Math.max(64, rh >> 1);
-    this.fbo.ao = makeFBO(aw, ah, { color: [{ internal: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
-    this.fbo.ao2 = makeFBO(aw, ah, { color: [{ internal: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
-    this.fbo.shaft = makeFBO(Math.max(64, aw >> 1), Math.max(64, ah >> 1), { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR }] });
-    this.fbo.ssr = makeFBO(aw, ah, { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR }] });
-    this.fbo.preHalf = makeFBO(aw, ah, { color: [{ internal: F, format: FMT, type: T, filter: gl.NEAREST }] });
-    this.fbo.ldr = makeFBO(W, H, { color: [{ internal: gl.RGBA8, format: FMT, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
-    this.bloom = [];
+    if (wantSSAO) {
+      this.fbo.ao = makeFBO(aw, ah, { color: [{ internal: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
+      this.fbo.ao2 = makeFBO(aw, ah, { color: [{ internal: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
+    }
+    if (!GLX.safeMode)
+      this.fbo.shaft = makeFBO(Math.max(64, aw >> 1), Math.max(64, ah >> 1), { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR }] });
+    if (wantSSR)
+      this.fbo.ssr = makeFBO(aw, ah, { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR }] });
+    this.fbo.ldr = makeFBO(W, H, { color: [{ internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, filter: gl.LINEAR }] });
+
     let bw = rw >> 1, bh = rh >> 1;
-    for (let i = 0; i < QUALITY[this.q].bloomMips; i++) {
+    for (let i = 0; i < Q.bloomMips; i++) {
       if (bw < 4 || bh < 4) break;
       this.bloom.push(makeFBO(bw, bh, { color: [{ internal: F, format: FMT, type: T, filter: gl.LINEAR, wrap: gl.CLAMP_TO_EDGE }] }));
       bw = Math.max(2, bw >> 1); bh = Math.max(2, bh >> 1);
@@ -6373,31 +6455,31 @@ const R = {
     gl.disable(gl.POLYGON_OFFSET_FILL);
 
     /* ---- 2. depth + normal prepass ---- */
-    bindFBO(this.fbo.pre, [0, 0, -1, 0]);
+    bindFBO(this.fbo.pre, [0.5, 0.5, 0.5, 0]);
     gl.depthMask(true); gl.depthFunc(gl.LESS);
-    gl.clearColor(0, 0, -1, 0);
+    gl.clearColor(0.5, 0.5, 0.5, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const pp = this.progs.pre.use();
-    pp.m4('uVP', this.vp).m4('uView', this.view);
+    pp.m4('uVP', this.vp).m4('uView', this.view).f('uInvFar', 1 / this.cam.far);
     this.drawWorld(pp, null, false);
     this.drawActors(scene.batches);
 
     /* ---- 3. SSAO ---- */
     let aoTex = this.aoWhite;
-    if (Q.ssao) {
+    if (Q.ssao && this.fbo.ao) {
       gl.disable(gl.DEPTH_TEST); gl.depthMask(false);
       bindFBO(this.fbo.ao);
       const ap = this.progs.ssao.use();
       ap.tex('uND', this.fbo.pre.tex, 0).v2('uRes', this.fbo.ao.w, this.fbo.ao.h)
-        .m4('uProj', this.proj).f('uRadius', 1.15).f('uIntensity', 0.85).f('uBias', 0.030).f('uTime', this.time);
+        .m4('uProj', this.proj).f('uFar', this.cam.far).f('uRadius', 1.15).f('uIntensity', 0.85).f('uBias', 0.030).f('uTime', this.time);
       drawFullscreen();
       const bp = this.progs.blur.use();
       bindFBO(this.fbo.ao2);
       bp.tex('uTex', this.fbo.ao.tex, 0).tex('uND', this.fbo.pre.tex, 1)
-        .v2('uDir', 1, 0).v2('uRes', this.fbo.ao.w, this.fbo.ao.h);
+        .v2('uDir', 1, 0).v2('uRes', this.fbo.ao.w, this.fbo.ao.h).f('uFar', this.cam.far);
       drawFullscreen();
       bindFBO(this.fbo.ao);
-      bp.tex('uTex', this.fbo.ao2.tex, 0).tex('uND', this.fbo.pre.tex, 1).v2('uDir', 0, 1);
+      bp.tex('uTex', this.fbo.ao2.tex, 0).tex('uND', this.fbo.pre.tex, 1).v2('uDir', 0, 1).f('uFar', this.cam.far);
       drawFullscreen();
       aoTex = this.fbo.ao.tex;
       gl.enable(gl.DEPTH_TEST);
@@ -6416,7 +6498,7 @@ const R = {
       .tex('uEnv', this.env, 1)
       .tex('uAO', aoTex, 2)
       .f('uEnvMips', this.envMips)
-      .f('uAOEnabled', Q.ssao ? 1 : 0)
+      .f('uAOEnabled', (Q.ssao && this.fbo.ao) ? 1 : 0)
       .f('uShadowTexel', 1 / this.shadowFBO.cell)
       .f('uShadowStrength', this.sky.shadowStrength)
       .v3a('uAmbSky', this.sky.ambSky).v3a('uAmbGround', this.sky.ambGrd)
@@ -6440,7 +6522,7 @@ const R = {
     gl.enable(gl.CULL_FACE);
 
     /* ---- 5b. screen-space reflections on standing water ---- */
-    if (this.ssrEnabled && this.wet > 0.02 && QUALITY[this.q].ssao) {
+    if (this.ssrEnabled && this.wet > 0.02 && this.fbo.ssr && this.fbo.ssr.fb) {
       gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.BLEND);
       bindFBO(this.fbo.ssr);
       gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
@@ -6448,7 +6530,7 @@ const R = {
       if (!this._invView) this._invView = M4.n();
       M4.invert(this._invView, this.view);
       rp.tex('uND', this.fbo.pre.tex, 0).tex('uScene', this.fbo.scene.tex, 1)
-        .m4('uProj', this.proj).m4('uInvView', this._invView)
+        .m4('uProj', this.proj).m4('uInvView', this._invView).f('uFar', this.cam.far)
         .v2('uRes', this.fbo.ssr.w, this.fbo.ssr.h)
         .f('uWet', this.wet).f('uTime', this.time).f('uIntensity', 1.0).v3a('uCamPos', this.cam.pos);
       drawFullscreen();
@@ -6496,7 +6578,7 @@ const R = {
     /* ---- 8b. god rays from the sun ---- */
     gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.BLEND);
     let shaftAmt = 0;
-    if (this.shaftAmount > 0.01 && this.fbo.shaft) {
+    if (this.shaftAmount > 0.01 && this.fbo.shaft && this.fbo.shaft.fb) {
       // project the sun onto the screen
       const d = this.sky.dir;
       const sp = [this.cam.pos[0] + d[0] * 900, this.cam.pos[1] + d[1] * 900, this.cam.pos[2] + d[2] * 900];
@@ -6513,7 +6595,7 @@ const R = {
           bindFBO(this.fbo.shaft);
           const shp = this.progs.shaft.use();
           shp.tex('uScene', this.fbo.scene.tex, 0).tex('uND', this.fbo.pre.tex, 1)
-            .v2('uSun', sx, sy).f('uAmount', 1.0).f('uOnScreen', onScreen);
+            .v2('uSun', sx, sy).f('uAmount', 1.0).f('uOnScreen', onScreen).f('uFar', this.cam.far);
           drawFullscreen();
           shaftAmt = this.shaftAmount * onScreen;
         }
@@ -6528,7 +6610,7 @@ const R = {
       bindFBO(bl[0]);
       const pf = this.progs.bpre.use();
       pf.tex('uTex', this.fbo.scene.tex, 0).v2('uTexel', 1 / this.rw, 1 / this.rh)
-        .f('uThreshold', 1.05).f('uKnee', 0.55);
+        .f('uThreshold', GLX.safeMode ? 0.70 : 1.05).f('uKnee', GLX.safeMode ? 0.30 : 0.55);
       drawFullscreen();
       const dn = this.progs.bdown.use();
       for (let i = 1; i < bl.length; i++) {
@@ -6605,7 +6687,7 @@ const R = {
     const upv = [this.view[1], this.view[5], this.view[9]];
     const prog = this.progs.part.use();
     prog.m4('uVP', this.vp).v3a('uCamR', right).v3a('uCamU', upv).v3a('uCamPos', this.cam.pos)
-      .tex('uND', this.fbo.pre.tex, 0).v2('uRes', this.rw, this.rh).f('uSoftEnabled', 1);
+      .tex('uND', this.fbo.pre.tex, 0).v2('uRes', this.rw, this.rh).f('uSoftEnabled', 1).f('uFar', this.cam.far);
     gl.enable(gl.BLEND);
     gl.depthMask(false);
     gl.disable(gl.CULL_FACE);
@@ -7670,7 +7752,16 @@ const Game = {
     const frame = () => new Promise(r => setTimeout(r, 16));
 
     setLoad(.05, 'starting renderer'); await frame();
+    // a phone should not open on the same preset as a desktop GPU
+    const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+    const small = Math.min(innerWidth, innerHeight) < 500;
+    if (coarse) this.settings.quality = small ? 0 : 1;
+    R.q = this.settings.quality;
     R.init(canvas);
+    if (GLX.safeMode) {
+      this.settings.ssr = 0; R.ssrEnabled = false;
+      this.toastQueue = 'Reduced graphics mode — this device has no float render targets';
+    }
     R.userScale = this.settings.scale;
     R.updateSky(this.settings.tod, this.settings.weather, .016);
 
@@ -7724,6 +7815,7 @@ const Game = {
       $('menu').classList.remove('hidden');
       this.updateMenuCard();
       Controls.apply();
+      if (this.toastQueue) { this.toast(this.toastQueue, 'bad'); this.toastQueue = null; }
       const h = document.querySelector('#menu .hint');
       if (h) h.innerHTML = Controls.helpHTML();
     });
@@ -7878,7 +7970,26 @@ const Game = {
     rng('volTyre', 'volTyreo', v => S.volTyre = v / 100, v => v + '%');
     rng('volWorld', 'volWorldo', v => S.volWorld = v / 100, v => v + '%');
 
-    addEventListener('resize', () => R.resize());
+    // mobile browsers fire resize every time the address bar slides; each one
+    // used to reallocate the entire render target set
+    let rzT = 0;
+    addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => R.resize(), 180); });
+
+    GLX.onLost = () => {
+      _running = false;
+      let el = $('ctxlost');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'ctxlost';
+        el.innerHTML = '<div class="panel narrow"><h2>Graphics reset</h2>' +
+          '<p class="sub">The browser dropped the WebGL context. Reloading puts you straight back.</p>' +
+          '<div class="actions col"><button class="btn" id="ctxreload">Reload</button></div></div>';
+        el.className = 'screen panel-screen';
+        document.body.appendChild(el);
+        $('ctxreload').onclick = () => location.reload();
+      }
+      el.classList.remove('hidden');
+    };
 
     const cv = $('gl');
     let drag = false, lx = 0, ly = 0;
@@ -8677,14 +8788,32 @@ const Game = {
   },
 
   autoQuality(fps) {
-    if (!this.settings.auto || this.state !== 'play') return;
+    // this read settings.auto, which does not exist — the setting is autoq — so
+    // adaptive quality silently never ran and the game could not climb out of a
+    // bad frame rate on its own
+    if (!this.settings.autoq || this.state !== 'play' || this.countdown > 0) return;
+    const now = this.time;
+    if (now < (this._qCooldown || 0)) { this._fpsHist = []; return; }
+
     this._fpsHist = this._fpsHist || [];
     this._fpsHist.push(fps);
-    if (this._fpsHist.length < 6) return;
-    const avg = this._fpsHist.reduce((a, b) => a + b, 0) / this._fpsHist.length;
+    if (this._fpsHist.length < 4) return;
+    const avg = this._fpsHist.reduce((x, y) => x + y, 0) / this._fpsHist.length;
     this._fpsHist.length = 0;
-    if (avg < 26 && R.q > 0) { R.setQuality(R.q - 1); HUD.popup('GRAPHICS ↓ ' + QUALITY[R.q].name, '#8ea3bd'); this.syncQualityUI(); }
-    else if (avg > 85 && R.q < 3 && !this._qLocked) { R.setQuality(R.q + 1); this.syncQualityUI(); }
+
+    // wide dead band plus a cooldown: without them the two thresholds sat close
+    // enough that one slow frame flipped the quality back and forth forever
+    if (avg < 24 && R.q > 0) {
+      R.setQuality(R.q - 1);
+      this._qFloor = true;                 // never climb back past a downgrade
+      this._qCooldown = now + 8;
+      HUD.popup('GRAPHICS ↓ ' + QUALITY[R.q].name, '#8ba1bd');
+      this.syncQualityUI();
+    } else if (avg > 92 && R.q < 3 && !this._qFloor) {
+      R.setQuality(R.q + 1);
+      this._qCooldown = now + 12;
+      this.syncQualityUI();
+    }
   },
 
   syncQualityUI() {
@@ -8705,7 +8834,13 @@ const Game = {
    requestAnimationFrame drives the game normally; a watchdog interval keeps it
    ticking when rAF is throttled (background tab, non-compositing preview pane). */
 let _last = performance.now(), _lastFrameAt = 0, _accWall = 0, _fpsN = 0;
+let _running = true, _inStep = false;
+
 function step() {
+  // the watchdog and requestAnimationFrame can both land here; re-entering
+  // would render the same frame twice and double the GPU load
+  if (_inStep || !_running || GLX.lost) return;
+  _inStep = true;
   const now = performance.now();
   let wall = now - _last;
   let dt = wall / 1000;
@@ -8720,15 +8855,30 @@ function step() {
     const fps = _fpsN * 1000 / _accWall;
     _fpsN = 0; _accWall = 0;
     if (HUD.el.fps) HUD.el.fps.textContent =
-      fps.toFixed(0) + ' fps  ·  ' + QUALITY[R.q].name + '  ·  ' + R.rw + '×' + R.rh;
+      fps.toFixed(0) + ' fps  ·  ' + QUALITY[R.q].name + '  ·  ' + R.rw + '×' + R.rh +
+      (GLX.safeMode ? '  ·  safe' : '');
     Game.autoQuality(fps);
   }
+  _inStep = false;
 }
-function raf() { step(); requestAnimationFrame(raf); }
+
+function raf() { step(); if (_running) requestAnimationFrame(raf); }
 
 Game.boot().then(() => {
   requestAnimationFrame(raf);
-  setInterval(() => { if (performance.now() - _lastFrameAt > 45) step(); }, 16);
-}).catch(e => showErr('boot: ' + (e.stack || e.message)));
+  // Only a cover for requestAnimationFrame being starved outright — a background
+  // tab or a throttled preview. At 45ms it fired constantly on any machine below
+  // 22fps and drove a second, un-vsynced render loop on top of rAF.
+  setInterval(() => { if (_running && performance.now() - _lastFrameAt > 400) step(); }, 250);
+  document.addEventListener('visibilitychange', () => { _last = performance.now(); });
+}).catch(e => {
+  const l = $('load');
+  if (l) {
+    l.classList.remove('hidden');
+    const m = $('loadmsg');
+    if (m) { m.textContent = 'could not start — see the message below'; m.style.color = '#ffb2c0'; }
+  }
+  showErr('boot: ' + (e.stack || e.message));
+});
 
 </script>
