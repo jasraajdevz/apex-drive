@@ -193,6 +193,10 @@ World.build = function (opts) {
     }
   }
 
+  /* ---------------- petrol stations ---------------- */
+  Stations.build(rnd);
+  Stations.place();
+
   /* ---------------- street furniture ---------------- */
   this._streetFurniture(rnd);
   this._streetDetail(rnd);
@@ -850,6 +854,41 @@ World._outskirts = function (rnd) {
   // ground
   this._box(0, -.06, 0, far * 2, .1, far * 2, 0, [.085, .095, .075], .95, 0, 0, M_GRASS, 0);
 
+  /* woodland, scrub and boulders across the countryside */
+  {
+    const ringR = Terrain.ringR;
+    const reach = ringR + 900;
+    const cell = 46;
+    for (let x = -reach; x <= reach; x += cell) {
+      for (let z = -reach; z <= reach; z += cell) {
+        const d = Math.hypot(x, z);
+        if (d < half + 40) continue;                       // not in the city
+        if (Math.abs(d - ringR) < 34) continue;            // not on the motorway
+        const jx = x + (rnd() - .5) * cell * .9;
+        const jz = z + (rnd() - .5) * cell * .9;
+        const h = Terrain.h(jx, jz);
+        const g = [0, 0];
+        Terrain.grad(jx, jz, g);
+        const slope = Math.hypot(g[0], g[1]);
+        if (slope > 0.75) continue;                        // nothing clings to a cliff
+        const r = rnd();
+        // density falls off with height, woods cluster in the valleys
+        const wood = smoothstep(0.62, 0.30, h / 120) * (0.35 + 0.65 * vnoise(jx * 0.004, jz * 0.004));
+        if (r < wood * 0.55) {
+          this._tree(jx, jz, rnd, h < 30 && rnd() < 0.18);
+        } else if (r < wood * 0.55 + 0.10) {
+          // scrub
+          const sc = 0.5 + rnd() * 0.9;
+          this._sph(jx, 0.35 * sc, jz, sc, sc * .55, sc, [.09 + rnd() * .05, .14 + rnd() * .06, .05], .95, 0, 0, M_FOLIAGE, 0);
+        } else if (r < wood * 0.55 + 0.135) {
+          // boulder
+          const bs = 0.7 + rnd() * 2.1;
+          this._sph(jx, bs * .38, jz, bs, bs * .62, bs * (.7 + rnd() * .5), [.11, .107, .10], .95, 0, 0, M_CONCRETE, 0);
+        }
+      }
+    }
+  }
+
   // distant skyline
   for (let k = 0; k < 260; k++) {
     const a = rnd() * TAU;
@@ -874,13 +913,17 @@ World._outskirts = function (rnd) {
 World.buildTerrain = function (meshes) {
   if (this.terrain) for (const t of this.terrain) { /* meshes are kept, tiles rebuilt rarely */ }
   this.terrain = [];
-  const TILE = 304, RES = 16;   // 304 = 4 city cells, so verts land on cell corners
+  const TILE = 304;             // 4 city cells, so verts land on cell corners
   const reach = this.half + 1500;
   const n = Math.ceil((reach * 2) / TILE);
   const start = -Math.ceil(n / 2) * TILE;
   for (let tj = 0; tj < n; tj++) {
     for (let ti = 0; ti < n; ti++) {
       const x0 = start + ti * TILE, z0 = start + tj * TILE;
+      // resolution falls off with distance from the city — nobody counts
+      // polygons on a hillside two kilometres away
+      const dFromCity = Math.max(0, Math.hypot(x0 + TILE / 2, z0 + TILE / 2) - this.half);
+      const RES = dFromCity > 1100 ? 4 : dFromCity > 520 ? 8 : 16;
       const g = new Geo();
       let ylo = 1e9, yhi = -1e9;
       for (let j = 0; j <= RES; j++) {

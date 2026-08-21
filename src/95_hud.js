@@ -12,7 +12,9 @@ const HUD = {
     ['hud', 'spdval', 'spdunit', 'gear', 'rpmArc', 'trackArc', 'redArc', 'boostArc', 'boostTrack',
       'ticks', 'minimap', 'bigmsg', 'submsg', 'popups', 'modename', 'objrows', 'driftbox',
       'driftval', 'driftmul', 'drifttime', 'boostval', 'nosfill', 'fps', 'touch',
-      'shiftlights', 'hudcash'].forEach(k => e[k] = $(k));
+      'shiftlights', 'hudcash', 'fuelfill', 'fuelpct', 'fuelbox', 'stationhint',
+      'stname', 'stdist', 'skillbox', 'sklist', 'skchain', 'skmult', 'sktime',
+      'radiochip', 'rcname', 'rcsub'].forEach(k => e[k] = $(k));
     this.mmCtx = e.minimap.getContext('2d');
     e.shiftlights.innerHTML = new Array(9).fill('<i></i>').join('');
     this.leds = [...e.shiftlights.querySelectorAll('i')];
@@ -56,16 +58,16 @@ const HUD = {
 
   update(g) {
     const car = g.player, e = this.el;
-    const mph = g.settings.units === 1;
-    const spd = Math.abs(car.fwdSpeed) * (mph ? 2.23694 : 3.6);
-    e.spdval.textContent = Math.round(spd);
-    e.spdunit.textContent = mph ? 'mph' : 'km/h';
+    const u = this.units(g);
+    const spd = Math.abs(car.fwdSpeed) * u.mul;
+    e.spdval.textContent = u.id === 'ms' ? spd.toFixed(1) : Math.round(spd);
+    e.spdunit.textContent = u.label;
 
     const rev = clamp01(car.rpm / car.ph.redline);
     e.rpmArc.style.strokeDasharray = `${(this.arcLen * rev).toFixed(1)} 9999`;
 
     // gear
-    const gtxt = car.gear === 0 ? 'R' : (car.clutchEngage < .4 && car.throttle < .02 && spd < 2 ? 'N' : car.gear);
+    const gtxt = car.gear === 0 ? 'R' : (car.clutchEngage < .4 && car.throttle < .02 && Math.abs(car.fwdSpeed) < 0.6 ? 'N' : car.gear);
     if (gtxt !== this._lastGear) { e.gear.textContent = gtxt; this._lastGear = gtxt; }
     e.gear.classList.toggle('shifting', car.shiftT > 0);
 
@@ -93,6 +95,49 @@ const HUD = {
     e.nosfill.style.opacity = car.nosActive ? 1 : .6;
 
     e.hudcash.textContent = Math.round(Garage.cash).toLocaleString('en-US');
+  },
+
+  /* speed + distance in the unit the player picked */
+  units(g) { return UNITS[clamp(g.settings.units | 0, 0, UNITS.length - 1)]; },
+
+  fuel(frac, low) {
+    this.el.fuelfill.style.width = (frac * 100).toFixed(0) + '%';
+    this.el.fuelpct.textContent = Math.round(frac * 100) + '%';
+    this.el.fuelbox.classList.toggle('low', low);
+  },
+
+  station(name, metres, u) {
+    const el = this.el.stationhint;
+    if (!name) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    this.el.stname.textContent = name;
+    const d = metres / u.dist;
+    this.el.stdist.textContent = (d < 0.1 ? Math.round(metres) + ' m' : d.toFixed(1) + ' ' + u.distLabel);
+  },
+
+  skill(label, pts, colour) {
+    const d = document.createElement('div');
+    d.className = 'sk-item';
+    d.innerHTML = label + (pts ? ' <u>+' + pts + '</u>' : '');
+    if (colour) d.style.color = colour;
+    this.el.sklist.appendChild(d);
+    while (this.el.sklist.children.length > 5) this.el.sklist.removeChild(this.el.sklist.firstChild);
+    setTimeout(() => d.remove(), 1600);
+  },
+
+  chain(show, value, mult, frac) {
+    this.el.skillbox.classList.toggle('hidden', !show);
+    if (!show) return;
+    this.el.skchain.textContent = Math.round(value).toLocaleString('en-US');
+    this.el.skmult.textContent = 'x' + mult.toFixed(1);
+    this.el.sktime.style.width = (frac * 100).toFixed(0) + '%';
+  },
+
+  radio(on, st) {
+    this.el.radiochip.classList.toggle('hidden', !on);
+    if (!on) return;
+    this.el.rcname.textContent = st.name;
+    this.el.rcsub.textContent = st.sub;
   },
 
   rows(list) {
@@ -170,6 +215,14 @@ const HUD = {
       c.fillRect(dx * k - 1.6, dz * k - 1.6, 3.2, 3.2);
     }
 
+    if (Stations.list.length) {
+      for (const st of Stations.list) {
+        const dx = st.x - px, dz = st.z - pz;
+        if (Math.abs(dx) > range || Math.abs(dz) > range) continue;
+        c.beginPath(); c.arc(dx * k, dz * k, 4.5, 0, TAU);
+        c.fillStyle = '#7cf37c'; c.shadowColor = '#7cf37c'; c.shadowBlur = 7; c.fill(); c.shadowBlur = 0;
+      }
+    }
     if (MapView.waypoint) {
       const dx = MapView.waypoint.x - px, dz = MapView.waypoint.z - pz;
       const cl = Math.hypot(dx, dz) * k > half - 12;

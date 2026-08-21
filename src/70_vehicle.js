@@ -524,8 +524,19 @@ class Vehicle {
   /* automatic gearbox — fed the raw pedals, never the reverse-swapped ones */
   autoGearbox(dt, raw) {
     const ph = this.ph;
-    if (this.manual) return;
     if (this.shiftT > 0) return;
+    if (this.manual) {
+      // in manual the driver picks the gears, but holding the brake at a
+      // standstill still drops into reverse — otherwise it feels broken
+      if (this.gear === 1 && raw.brake > 0.5 && raw.throttle < 0.06 && Math.abs(this.fwdSpeed) < 0.9) {
+        this.revHold = (this.revHold || 0) + dt;
+        if (this.revHold > 0.65) { this.gear = 0; this.shiftT = ph.shiftTime; this.revHold = 0; }
+      } else if (this.gear === 0 && raw.throttle > 0.2 && this.fwdSpeed > -0.8) {
+        this.fwdHold = (this.fwdHold || 0) + dt;
+        if (this.fwdHold > 0.35) { this.gear = 1; this.shiftT = ph.shiftTime; this.fwdHold = 0; }
+      } else { this.revHold = 0; this.fwdHold = 0; }
+      return;
+    }
     const kmh = this.fwdSpeed * 3.6;
 
     if (this.gear === 0) {

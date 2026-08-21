@@ -105,7 +105,8 @@ const Game = {
   time: 0, raceTime: 0, bestTime: 0, driftScore: 0, driftBank: 0, driftMul: 1, driftTimer: 0,
   settings: { quality: 2, scale: 1, tod: 0.43, cycle: 0, weather: 0, traffic: 46, fov: 74,
     vol: .75, volEng: 1, volTyre: 1, volWorld: 1, mblur: 1, autoq: 1, ssr: 1,
-    manual: 0, units: 0, steerRate: 1, assists: 1, shake: 1 },
+    manual: 0, units: 0, steerRate: 1, assists: 1, shake: 1,
+    invert: 0, radio: 0, station: 0, volRadio: .5 },
   todNow: 0.43,
   airBest: 0, topSpeed: 0,
   paused: false, photo: false,
@@ -169,6 +170,7 @@ const Game = {
     HUD.init();
     Shop.init();
     MapView.init();
+    Radio.station = this.settings.station;
     this.bindUI();
     Input.init();
     this.applyCar();
@@ -319,6 +321,9 @@ const Game = {
     seg('transseg', v => { S.manual = v; if (this.player) this.player.manual = v; Controls.updateShiftButtons();
       this.toast(v ? (Controls.device === 'touch' ? 'Manual — use the ▲ ▼ paddles' : 'Manual gearbox — E / Q to shift') : 'Automatic gearbox'); }, S.manual);
     seg('unitseg', v => S.units = v, S.units);
+    seg('invseg', v => S.invert = v, S.invert);
+    seg('radioseg', v => { S.radio = v; if (!!v !== Radio.on) Radio.toggle(); }, S.radio);
+    seg('stationseg', v => { S.station = v; Radio.station = v; if (Radio.on) { Radio.stop(); Radio.play(); } HUD.radio(Radio.on, Radio.stations[v]); }, S.station);
     seg('assistseg', v => S.assists = v, S.assists);
 
     const rng = (id, out, fn, fmt) => {
@@ -339,6 +344,7 @@ const Game = {
     rng('volEng', 'volEngo', v => S.volEng = v / 100, v => v + '%');
     rng('volTyre', 'volTyreo', v => S.volTyre = v / 100, v => v + '%');
     rng('volWorld', 'volWorldo', v => S.volWorld = v / 100, v => v + '%');
+    rng('volRadio', 'volRadioo', v => { S.volRadio = v / 100; Radio.setVolume(S.volRadio); }, v => v + '%');
 
     // mobile browsers fire resize every time the address bar slides; each one
     // used to reallocate the entire render target set
@@ -432,6 +438,7 @@ const Game = {
     this.driftScore = 0; this.driftBank = 0; this.driftMul = 1; this.driftTimer = 0;
     this.topSpeed = 0; this.airBest = 0; this.trapBest = 0;
     this.route = []; this.cpIndex = 0;
+    Fuel.reset(true); Skills.reset();
     this.countdown = (m === 'free') ? 0 : 3.999;
     Controls.recalibrate(); Controls.updateShiftButtons(); Controls.measure();
     this._cdLast = -1;
@@ -502,14 +509,17 @@ const Game = {
       this.player.manual = this.settings.manual;
       this.syncSeg('transseg', this.settings.manual);
       Controls.updateShiftButtons();
-      this.toast(this.settings.manual ? 'MANUAL — E upshift, Q downshift' : 'AUTOMATIC');
+      this.toast(this.settings.manual ? 'MANUAL — Q up, E down' : 'AUTOMATIC');
       Audio2.ui('tick');
     }
+    if (code === 'KeyB') { Radio.toggle(); this.syncSeg('radioseg', Radio.on ? 1 : 0); return; }
+    if (code === 'KeyN') { Radio.next(); this.syncSeg('stationseg', Radio.station); return; }
     if (this.settings.manual) {
-      if (code === 'KeyE' || code === 'ShiftRight') {
+      // Q shifts up, E shifts down
+      if (code === 'KeyQ' || code === 'ShiftRight') {
         const r = this.player.shiftUp(); if (r > 0) Audio2.shift(true);
       }
-      if (code === 'KeyQ' || code === 'ControlRight') {
+      if (code === 'KeyE' || code === 'ControlRight') {
         const r = this.player.shiftDown();
         if (r > 0) Audio2.shift(false);
         else if (r < 0) { Audio2.grind(); HUD.popup('OVER-REV', '#ff3d68'); }
@@ -577,7 +587,7 @@ const Game = {
     const playing = this.state === 'play' && !this.paused && !this.photo && !MapView.open;
 
     const inp = playing
-      ? { steer: Input.steer, throttle: Input.throttle, brake: Input.brake }
+      ? { steer: Input.steer * (S.invert ? -1 : 1), throttle: Input.throttle, brake: Input.brake }
       : { steer: 0, throttle: 0, brake: 0 };
 
     // race start lights
@@ -634,6 +644,9 @@ const Game = {
     const wantLights = (R.sky.night > .35 || S.weather === 2) !== !!p.headlightsManual;
     p.headlights = damp(p.headlights, wantLights ? 1 : 0, 4, dt);
 
+    Fuel.update(p, dt, playing);
+    if (Fuel.starve()) { inp.throttle = 0; p.throttle = 0; p.throttleSm = 0; }
+    Skills.update(p, dt, playing);
     Traffic.update(dt, p);
 
     if (p.impact > .05 && this.time - p.lastImpactT > .18) {
@@ -1273,7 +1286,15 @@ const Game = {
     this.update(dt);
     this.buildBatches();
     R.render(this.scene, dt);
-    if (this.state === 'play' && !this.photo) { HUD.update(this); HUD.minimap(this); }
+    if (this.state === 'play' && !this.photo) {
+      HUD.update(this);
+      HUD.minimap(this);
+      const u = HUD.units(this);
+      HUD.fuel(Fuel.frac(), Fuel.frac() < 0.16);
+      const st = Fuel.station;
+      HUD.station(st && (Fuel.frac() < 0.35 || st.d < 60) ? st.name : null, st ? st.d : 0, u);
+      HUD.chain(Skills.chain > 0, Skills.chain, Skills.mult, clamp01(Skills.timer / 3.2));
+    }
   }
 };
 

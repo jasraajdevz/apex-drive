@@ -469,15 +469,32 @@ void matConcrete(inout Surf s, vec3 wp, vec3 lp, vec3 scale){
   if(uWet>0.01){ s.rough=mix(s.rough,0.30,uWet*0.7); s.alb*=mix(1.0,0.72,uWet); }
 }
 
-void matGrass(inout Surf s, vec3 wp){
-  float n = fbm3(wp.xz*2.6);
-  float m = fbm3(wp.xz*0.32);
-  float t = sat(n*0.7+m*0.5);
-  s.alb = mix(vec3(0.042,0.062,0.030), vec3(0.098,0.128,0.056), t);
-  // dry patches
-  s.alb = mix(s.alb, vec3(0.115,0.105,0.062), smoothstep(0.62,0.86,m)*0.55);
-  s.rough = 0.96; s.metal = 0.0;
-  s.ao = 0.86+0.14*t;
+void matGrass(inout Surf s, vec3 wp, vec3 nrm){
+  // biome by height and slope: meadow low down, dry scrub higher,
+  // bare rock on anything steep, and a dusting of snow on the peaks
+  float slope = 1.0 - sat(nrm.y);
+  float hgt = wp.y;
+
+  float n  = fbm(wp.xz*2.6);
+  float m  = fbm(wp.xz*0.32);
+  float lg = fbm(wp.xz*0.06);
+
+  vec3 meadow = mix(vec3(0.048,0.105,0.032), vec3(0.115,0.205,0.070), n*0.65 + m*0.5);
+  vec3 dry    = mix(vec3(0.135,0.130,0.062), vec3(0.205,0.185,0.095), n*0.7);
+  vec3 rock   = mix(vec3(0.075,0.072,0.070), vec3(0.145,0.140,0.132), fbm(wp.xz*7.0));
+  vec3 snow   = vec3(0.78,0.82,0.88);
+
+  float dryness = smoothstep(0.42, 0.72, lg) * smoothstep(20.0, 90.0, hgt);
+  vec3 col = mix(meadow, dry, dryness);
+  col = mix(col, rock, smoothstep(0.30, 0.62, slope));
+  col = mix(col, snow, smoothstep(190.0, 280.0, hgt) * (1.0 - smoothstep(0.55, 0.85, slope)));
+
+  // patchy tonal variation so it is never a flat sheet of green
+  col *= 0.86 + 0.30*fbm(wp.xz*0.9);
+
+  s.alb = col;
+  s.rough = mix(0.97, 0.86, smoothstep(0.30, 0.62, slope));
+  s.metal = 0.0;
 }
 
 void matTire(inout Surf s, vec3 lp, vec3 nrm){
@@ -565,7 +582,7 @@ void main(){
     // 7 : polished metal / chrome
     s.metal = 1.0;
   } else if(matId < 8.5){
-    matGrass(s, vWP);
+    matGrass(s, vWP, normalize(vN));
   } else if(matId < 9.5){
     matFoliage(s, vWP, vLP);
   } else if(matId < 10.5){

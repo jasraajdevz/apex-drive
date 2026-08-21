@@ -372,21 +372,40 @@ const R = {
   },
 
   /* ---------------- geometry submission ---------------- */
-  drawWorld(prog, cullSphere, isShadow) {
+  drawWorld(prog, cullSphere, isShadow, cascade) {
     let drawn = 0;
     const pl = this.planes;
-    if (World.terrain) {
+    const cam = this.cam.pos;
+    const dd = QUALITY[this.q].drawDist;
+
+    /* terrain: distance-culled, and only the nearest cascade casts from it.
+       Shadowing 200 ground tiles three times over was most of the frame. */
+    if (World.terrain && !(isShadow && cascade > 0)) {
+      const reach = isShadow ? 260 : dd * 2.4;
+      const reach2 = reach * reach;
       for (const t of World.terrain) {
+        const dx = Math.max(0, Math.abs(cam[0] - t.cx) - t.ex);
+        const dz = Math.max(0, Math.abs(cam[2] - t.cz) - t.ez);
+        if (dx * dx + dz * dz > reach2) continue;
         if (cullSphere) {
-          const dx = Math.max(0, Math.abs(cullSphere.x - t.cx) - t.ex);
-          const dz = Math.max(0, Math.abs(cullSphere.z - t.cz) - t.ez);
-          if (dx * dx + dz * dz > cullSphere.r * cullSphere.r) continue;
+          const sx = Math.max(0, Math.abs(cullSphere.x - t.cx) - t.ex);
+          const sz = Math.max(0, Math.abs(cullSphere.z - t.cz) - t.ez);
+          if (sx * sx + sz * sz > cullSphere.r * cullSphere.r) continue;
         } else if (!aabbInFrustum(pl, t.cx, t.cy, t.cz, t.ex, t.ey, t.ez)) continue;
         t.batch.draw(); drawn++;
       }
     }
+
     for (const ch of World.chunks) {
       if (!ch.batches) continue;
+      // the far chunk holds the skyline and hills; it never needs to cast
+      if (ch.always && isShadow) continue;
+      if (!ch.always) {
+        const dx = Math.max(0, Math.abs(cam[0] - ch.cxm) - ch.ex);
+        const dz = Math.max(0, Math.abs(cam[2] - ch.czm) - ch.ez);
+        const lim = isShadow ? (cascade === 0 ? 90 : cascade === 1 ? 240 : 520) : dd * 1.35;
+        if (dx * dx + dz * dz > lim * lim) continue;
+      }
       if (cullSphere) {
         const dx = Math.max(0, Math.abs(cullSphere.x - ch.cxm) - ch.ex);
         const dz = Math.max(0, Math.abs(cullSphere.z - ch.czm) - ch.ez);
@@ -427,7 +446,7 @@ const R = {
     for (let i = 0; i < 3; i++) {
       gl.viewport(i * this.shadowFBO.cell, 0, this.shadowFBO.cell, this.shadowFBO.cell);
       sp.m4('uVP', this.csm[i]);
-      this.drawWorld(sp, this.csmSphere[i], true);
+      this.drawWorld(sp, this.csmSphere[i], true, i);
       this.drawActors(scene.batches);
     }
     gl.cullFace(gl.BACK);

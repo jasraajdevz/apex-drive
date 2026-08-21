@@ -121,7 +121,8 @@
 
     <div class="tabpane hidden" data-p="drv">
       <div class="row"><label>Transmission</label><div class="seg" id="transseg"><button data-v="0" class="on">Automatic</button><button data-v="1">Manual</button></div></div>
-      <div class="row"><label>Units</label><div class="seg" id="unitseg"><button data-v="0" class="on">km/h</button><button data-v="1">mph</button></div></div>
+      <div class="row"><label>Units</label><div class="seg" id="unitseg"><button data-v="0" class="on">km/h</button><button data-v="1">mph</button><button data-v="2">m/s</button></div></div>
+      <div class="row"><label>Invert steering</label><div class="seg" id="invseg"><button data-v="0" class="on">Off</button><button data-v="1">On</button></div></div>
       <div class="row"><label>Steering speed</label><input type="range" id="steerrate" min="40" max="160" value="100"><output id="steerrateo">100%</output></div>
       <div class="row"><label>Assists</label><div class="seg" id="assistseg"><button data-v="0">Off</button><button data-v="1" class="on">Light</button><button data-v="2">Full</button></div></div>
       <div class="row"><label>Camera shake</label><input type="range" id="shake" min="0" max="150" value="100"><output id="shakeo">100%</output></div>
@@ -155,6 +156,9 @@
       <div class="row"><label>Engine</label><input type="range" id="volEng" min="0" max="150" value="100"><output id="volEngo">100%</output></div>
       <div class="row"><label>Tyres</label><input type="range" id="volTyre" min="0" max="150" value="100"><output id="volTyreo">100%</output></div>
       <div class="row"><label>World</label><input type="range" id="volWorld" min="0" max="150" value="100"><output id="volWorldo">100%</output></div>
+      <div class="row"><label>Radio</label><div class="seg" id="radioseg"><button data-v="0" class="on">Off</button><button data-v="1">On</button></div></div>
+      <div class="row"><label>Station</label><div class="seg" id="stationseg"><button data-v="0" class="on">Apex FM</button><button data-v="1">Night Drive</button><button data-v="2">Redline</button></div></div>
+      <div class="row"><label>Radio volume</label><input type="range" id="volRadio" min="0" max="100" value="50"><output id="volRadioo">50%</output></div>
     </div>
 
     <div class="actions">
@@ -205,6 +209,28 @@
 
   <div id="popups"></div>
 
+  <div id="skillbox" class="hidden">
+    <div class="sk-list" id="sklist"></div>
+    <div class="sk-chain"><b id="skchain">0</b><i id="skmult">x1.0</i></div>
+    <div class="sk-bar"><s id="sktime"></s></div>
+  </div>
+
+  <div id="radiochip" class="hidden">
+    <span class="rc-dot"></span><b id="rcname">APEX FM</b><i id="rcsub">synthwave</i>
+  </div>
+
+  <div id="fuelbox">
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path d="M4 20V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v15M3 20h11M6 8h5" fill="none"
+            stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M16 9l2-2v9a1.5 1.5 0 0 0 3 0V9l-3-3" fill="none" stroke="currentColor"
+            stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <div class="fbar"><i id="fuelfill"></i></div>
+    <b id="fuelpct">100%</b>
+  </div>
+  <div id="stationhint" class="hidden"><b id="stname">—</b><i id="stdist">0 km</i></div>
+
   <div id="cluster">
     <svg id="dial" viewBox="0 0 300 300">
       <defs>
@@ -250,8 +276,8 @@
     <div class="tc brake" id="tbrake" data-ctl="brake">BRAKE</div>
     <div class="tc small hand" id="thand" data-ctl="hand">E‑BRK</div>
     <div class="tc small nos"  id="tnos"  data-ctl="nos">NOS</div>
-    <div class="tc shift up   hidden" id="tup"   data-ctl="up">▲</div>
-    <div class="tc shift down hidden" id="tdown" data-ctl="down">▼</div>
+    <div class="tc shift up   hidden" id="tup"   data-ctl="up">+</div>
+    <div class="tc shift down hidden" id="tdown" data-ctl="down">−</div>
     <!-- utility -->
     <div class="tc mini" id="tcam"   data-ctl="cam">CAM</div>
     <div class="tc mini" id="treset" data-ctl="reset">RESET</div>
@@ -496,7 +522,7 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border:0;border-radiu
 #shiftlights i.on3{background:var(--accent2);box-shadow:0 0 14px var(--accent2)}
 #shiftlights.flash i{background:#fff;box-shadow:0 0 18px #fff}
 
-#minimap{position:absolute;top:18px;right:20px;width:200px;height:200px;opacity:.95;
+#minimap{position:absolute;top:18px;right:20px;width:232px;height:232px;opacity:.95;
   filter:drop-shadow(0 8px 26px rgba(0,0,0,.7))}
 
 #center{position:absolute;top:24%;left:0;right:0;text-align:center}
@@ -713,7 +739,7 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
 .maphead .xbtn{margin-left:auto}
 .mapwrap{flex:1;min-height:0;position:relative;overflow:hidden}
 #bigmap{position:absolute;inset:0;display:block;cursor:crosshair;touch-action:none}
-.mapfoot{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+.mapfoot{display:flex;align-items:center;gap:16px;flex-wrap:wrap;row-gap:10px;
   padding:12px clamp(14px,3vw,30px);border-top:1px solid var(--line)}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;letter-spacing:1.4px;color:var(--dim)}
 .legend span{display:flex;align-items:center;gap:6px}
@@ -756,6 +782,56 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
 #menubtn:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 0 16px rgba(34,227,255,.24)}
 @media (max-width:900px){
   #menubtn{top:12px;left:12px;transform:none;width:42px;height:38px}
+}
+
+/* ---------- fuel, skills, radio ---------- */
+#fuelbox{position:absolute;right:26px;bottom:300px;display:flex;align-items:center;gap:8px;
+  background:rgba(9,14,22,.68);border:1px solid var(--line);border-radius:10px;padding:6px 11px;
+  color:var(--dim);backdrop-filter:blur(8px)}
+#fuelbox .fbar{width:86px;height:5px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden}
+#fuelbox .fbar i{display:block;height:100%;width:100%;border-radius:3px;
+  background:linear-gradient(90deg,#7cf37c,#ffcf6b);transition:width .3s}
+#fuelbox.low .fbar i{background:linear-gradient(90deg,#ff3d68,#ffcf6b)}
+#fuelbox.low{border-color:rgba(255,61,104,.55);color:#ffb2c0;animation:fpulse 1.1s ease-in-out infinite}
+@keyframes fpulse{0%,100%{opacity:1}50%{opacity:.55}}
+#fuelbox b{font-size:12px;color:var(--ink);min-width:34px;text-align:right}
+#stationhint{position:absolute;right:26px;bottom:268px;display:flex;align-items:baseline;gap:8px;
+  background:rgba(9,14,22,.68);border:1px solid rgba(124,243,124,.4);border-radius:10px;
+  padding:5px 11px;color:#c9ffcf}
+#stationhint b{font-size:12px;letter-spacing:1.2px}
+#stationhint i{font-style:normal;font-size:12px;font-weight:700}
+
+#skillbox{position:absolute;left:26px;top:50%;transform:translateY(-50%);width:230px;pointer-events:none}
+.sk-list{display:flex;flex-direction:column-reverse;gap:3px;margin-bottom:8px;min-height:96px;justify-content:flex-end}
+.sk-item{font-size:15px;font-weight:700;letter-spacing:1.6px;text-shadow:0 2px 12px rgba(0,0,0,.85);
+  animation:ski 1.5s ease-out forwards;display:flex;gap:8px;align-items:baseline}
+.sk-item u{text-decoration:none;font-size:12px;opacity:.85}
+@keyframes ski{0%{opacity:0;transform:translateX(-16px)}12%{opacity:1;transform:none}
+  75%{opacity:1}100%{opacity:0;transform:translateX(6px)}}
+.sk-chain{display:flex;align-items:baseline;gap:8px}
+.sk-chain b{font-size:32px;font-weight:800;color:var(--warm);text-shadow:0 0 26px rgba(255,190,80,.6)}
+.sk-chain i{font-style:normal;font-size:16px;font-weight:700;color:#fff;opacity:.9}
+.sk-bar{width:150px;height:3px;background:rgba(255,255,255,.15);border-radius:3px;margin-top:5px;overflow:hidden}
+.sk-bar s{display:block;height:100%;width:100%;text-decoration:none;background:var(--warm)}
+
+#radiochip{position:absolute;left:26px;bottom:26px;display:flex;align-items:baseline;gap:8px;
+  background:rgba(9,14,22,.68);border:1px solid var(--line);border-radius:10px;padding:6px 12px;
+  backdrop-filter:blur(8px)}
+#radiochip .rc-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 10px var(--accent);align-self:center;animation:rcp 1.6s ease-in-out infinite}
+@keyframes rcp{0%,100%{opacity:1}50%{opacity:.35}}
+#radiochip b{font-size:12.5px;letter-spacing:2px}
+#radiochip i{font-style:normal;font-size:10.5px;letter-spacing:1.6px;color:var(--dim)}
+
+
+@media (max-width:900px){
+  #fuelbox{bottom:auto;top:60px;right:12px;padding:4px 8px}
+  #fuelbox .fbar{width:56px}
+  #stationhint{bottom:auto;top:96px;right:12px}
+  #skillbox{left:12px;width:150px;transform:translateY(-60%)}
+  .sk-chain b{font-size:24px}
+  #radiochip{left:12px;bottom:12px;padding:4px 9px}
+  #radiochip i{display:none}
 }
 
 </style>
@@ -1892,15 +1968,32 @@ void matConcrete(inout Surf s, vec3 wp, vec3 lp, vec3 scale){
   if(uWet>0.01){ s.rough=mix(s.rough,0.30,uWet*0.7); s.alb*=mix(1.0,0.72,uWet); }
 }
 
-void matGrass(inout Surf s, vec3 wp){
-  float n = fbm3(wp.xz*2.6);
-  float m = fbm3(wp.xz*0.32);
-  float t = sat(n*0.7+m*0.5);
-  s.alb = mix(vec3(0.042,0.062,0.030), vec3(0.098,0.128,0.056), t);
-  // dry patches
-  s.alb = mix(s.alb, vec3(0.115,0.105,0.062), smoothstep(0.62,0.86,m)*0.55);
-  s.rough = 0.96; s.metal = 0.0;
-  s.ao = 0.86+0.14*t;
+void matGrass(inout Surf s, vec3 wp, vec3 nrm){
+  // biome by height and slope: meadow low down, dry scrub higher,
+  // bare rock on anything steep, and a dusting of snow on the peaks
+  float slope = 1.0 - sat(nrm.y);
+  float hgt = wp.y;
+
+  float n  = fbm(wp.xz*2.6);
+  float m  = fbm(wp.xz*0.32);
+  float lg = fbm(wp.xz*0.06);
+
+  vec3 meadow = mix(vec3(0.048,0.105,0.032), vec3(0.115,0.205,0.070), n*0.65 + m*0.5);
+  vec3 dry    = mix(vec3(0.135,0.130,0.062), vec3(0.205,0.185,0.095), n*0.7);
+  vec3 rock   = mix(vec3(0.075,0.072,0.070), vec3(0.145,0.140,0.132), fbm(wp.xz*7.0));
+  vec3 snow   = vec3(0.78,0.82,0.88);
+
+  float dryness = smoothstep(0.42, 0.72, lg) * smoothstep(20.0, 90.0, hgt);
+  vec3 col = mix(meadow, dry, dryness);
+  col = mix(col, rock, smoothstep(0.30, 0.62, slope));
+  col = mix(col, snow, smoothstep(190.0, 280.0, hgt) * (1.0 - smoothstep(0.55, 0.85, slope)));
+
+  // patchy tonal variation so it is never a flat sheet of green
+  col *= 0.86 + 0.30*fbm(wp.xz*0.9);
+
+  s.alb = col;
+  s.rough = mix(0.97, 0.86, smoothstep(0.30, 0.62, slope));
+  s.metal = 0.0;
 }
 
 void matTire(inout Surf s, vec3 lp, vec3 nrm){
@@ -1988,7 +2081,7 @@ void main(){
     // 7 : polished metal / chrome
     s.metal = 1.0;
   } else if(matId < 8.5){
-    matGrass(s, vWP);
+    matGrass(s, vWP, normalize(vN));
   } else if(matId < 9.5){
     matFoliage(s, vWP, vLP);
   } else if(matId < 10.5){
@@ -4342,6 +4435,10 @@ World.build = function (opts) {
     }
   }
 
+  /* ---------------- petrol stations ---------------- */
+  Stations.build(rnd);
+  Stations.place();
+
   /* ---------------- street furniture ---------------- */
   this._streetFurniture(rnd);
   this._streetDetail(rnd);
@@ -4999,6 +5096,41 @@ World._outskirts = function (rnd) {
   // ground
   this._box(0, -.06, 0, far * 2, .1, far * 2, 0, [.085, .095, .075], .95, 0, 0, M_GRASS, 0);
 
+  /* woodland, scrub and boulders across the countryside */
+  {
+    const ringR = Terrain.ringR;
+    const reach = ringR + 900;
+    const cell = 46;
+    for (let x = -reach; x <= reach; x += cell) {
+      for (let z = -reach; z <= reach; z += cell) {
+        const d = Math.hypot(x, z);
+        if (d < half + 40) continue;                       // not in the city
+        if (Math.abs(d - ringR) < 34) continue;            // not on the motorway
+        const jx = x + (rnd() - .5) * cell * .9;
+        const jz = z + (rnd() - .5) * cell * .9;
+        const h = Terrain.h(jx, jz);
+        const g = [0, 0];
+        Terrain.grad(jx, jz, g);
+        const slope = Math.hypot(g[0], g[1]);
+        if (slope > 0.75) continue;                        // nothing clings to a cliff
+        const r = rnd();
+        // density falls off with height, woods cluster in the valleys
+        const wood = smoothstep(0.62, 0.30, h / 120) * (0.35 + 0.65 * vnoise(jx * 0.004, jz * 0.004));
+        if (r < wood * 0.55) {
+          this._tree(jx, jz, rnd, h < 30 && rnd() < 0.18);
+        } else if (r < wood * 0.55 + 0.10) {
+          // scrub
+          const sc = 0.5 + rnd() * 0.9;
+          this._sph(jx, 0.35 * sc, jz, sc, sc * .55, sc, [.09 + rnd() * .05, .14 + rnd() * .06, .05], .95, 0, 0, M_FOLIAGE, 0);
+        } else if (r < wood * 0.55 + 0.135) {
+          // boulder
+          const bs = 0.7 + rnd() * 2.1;
+          this._sph(jx, bs * .38, jz, bs, bs * .62, bs * (.7 + rnd() * .5), [.11, .107, .10], .95, 0, 0, M_CONCRETE, 0);
+        }
+      }
+    }
+  }
+
   // distant skyline
   for (let k = 0; k < 260; k++) {
     const a = rnd() * TAU;
@@ -5023,13 +5155,17 @@ World._outskirts = function (rnd) {
 World.buildTerrain = function (meshes) {
   if (this.terrain) for (const t of this.terrain) { /* meshes are kept, tiles rebuilt rarely */ }
   this.terrain = [];
-  const TILE = 304, RES = 16;   // 304 = 4 city cells, so verts land on cell corners
+  const TILE = 304;             // 4 city cells, so verts land on cell corners
   const reach = this.half + 1500;
   const n = Math.ceil((reach * 2) / TILE);
   const start = -Math.ceil(n / 2) * TILE;
   for (let tj = 0; tj < n; tj++) {
     for (let ti = 0; ti < n; ti++) {
       const x0 = start + ti * TILE, z0 = start + tj * TILE;
+      // resolution falls off with distance from the city — nobody counts
+      // polygons on a hillside two kilometres away
+      const dFromCity = Math.max(0, Math.hypot(x0 + TILE / 2, z0 + TILE / 2) - this.half);
+      const RES = dFromCity > 1100 ? 4 : dFromCity > 520 ? 8 : 16;
       const g = new Geo();
       let ylo = 1e9, yhi = -1e9;
       for (let j = 0; j <= RES; j++) {
@@ -5623,8 +5759,19 @@ class Vehicle {
   /* automatic gearbox — fed the raw pedals, never the reverse-swapped ones */
   autoGearbox(dt, raw) {
     const ph = this.ph;
-    if (this.manual) return;
     if (this.shiftT > 0) return;
+    if (this.manual) {
+      // in manual the driver picks the gears, but holding the brake at a
+      // standstill still drops into reverse — otherwise it feels broken
+      if (this.gear === 1 && raw.brake > 0.5 && raw.throttle < 0.06 && Math.abs(this.fwdSpeed) < 0.9) {
+        this.revHold = (this.revHold || 0) + dt;
+        if (this.revHold > 0.65) { this.gear = 0; this.shiftT = ph.shiftTime; this.revHold = 0; }
+      } else if (this.gear === 0 && raw.throttle > 0.2 && this.fwdSpeed > -0.8) {
+        this.fwdHold = (this.fwdHold || 0) + dt;
+        if (this.fwdHold > 0.35) { this.gear = 1; this.shiftT = ph.shiftTime; this.fwdHold = 0; }
+      } else { this.revHold = 0; this.fwdHold = 0; }
+      return;
+    }
     const kmh = this.fwdSpeed * 3.6;
 
     if (this.gear === 0) {
@@ -6650,6 +6797,13 @@ const Audio2 = {
   chord(freqs, dur = 0.5, vol = 0.07) {
     freqs.forEach((f, i) => setTimeout(() => this._tone(f, dur, vol, 'triangle'), i * 60));
   },
+  skill(intensity) {
+    if (!this.ready) return;
+    const base = 880 + intensity * 520;
+    this._tone(base, 0.07, 0.045 + intensity * 0.02, 'triangle');
+    setTimeout(() => this._tone(base * 1.5, 0.09, 0.04 + intensity * 0.02, 'triangle'), 55);
+  },
+
   checkpoint() { this._tone(1480, 0.08, 0.06, 'triangle'); setTimeout(() => this._tone(2200, 0.10, 0.05, 'sine'), 60); },
 };
 
@@ -7381,21 +7535,40 @@ const R = {
   },
 
   /* ---------------- geometry submission ---------------- */
-  drawWorld(prog, cullSphere, isShadow) {
+  drawWorld(prog, cullSphere, isShadow, cascade) {
     let drawn = 0;
     const pl = this.planes;
-    if (World.terrain) {
+    const cam = this.cam.pos;
+    const dd = QUALITY[this.q].drawDist;
+
+    /* terrain: distance-culled, and only the nearest cascade casts from it.
+       Shadowing 200 ground tiles three times over was most of the frame. */
+    if (World.terrain && !(isShadow && cascade > 0)) {
+      const reach = isShadow ? 260 : dd * 2.4;
+      const reach2 = reach * reach;
       for (const t of World.terrain) {
+        const dx = Math.max(0, Math.abs(cam[0] - t.cx) - t.ex);
+        const dz = Math.max(0, Math.abs(cam[2] - t.cz) - t.ez);
+        if (dx * dx + dz * dz > reach2) continue;
         if (cullSphere) {
-          const dx = Math.max(0, Math.abs(cullSphere.x - t.cx) - t.ex);
-          const dz = Math.max(0, Math.abs(cullSphere.z - t.cz) - t.ez);
-          if (dx * dx + dz * dz > cullSphere.r * cullSphere.r) continue;
+          const sx = Math.max(0, Math.abs(cullSphere.x - t.cx) - t.ex);
+          const sz = Math.max(0, Math.abs(cullSphere.z - t.cz) - t.ez);
+          if (sx * sx + sz * sz > cullSphere.r * cullSphere.r) continue;
         } else if (!aabbInFrustum(pl, t.cx, t.cy, t.cz, t.ex, t.ey, t.ez)) continue;
         t.batch.draw(); drawn++;
       }
     }
+
     for (const ch of World.chunks) {
       if (!ch.batches) continue;
+      // the far chunk holds the skyline and hills; it never needs to cast
+      if (ch.always && isShadow) continue;
+      if (!ch.always) {
+        const dx = Math.max(0, Math.abs(cam[0] - ch.cxm) - ch.ex);
+        const dz = Math.max(0, Math.abs(cam[2] - ch.czm) - ch.ez);
+        const lim = isShadow ? (cascade === 0 ? 90 : cascade === 1 ? 240 : 520) : dd * 1.35;
+        if (dx * dx + dz * dz > lim * lim) continue;
+      }
       if (cullSphere) {
         const dx = Math.max(0, Math.abs(cullSphere.x - ch.cxm) - ch.ex);
         const dz = Math.max(0, Math.abs(cullSphere.z - ch.czm) - ch.ez);
@@ -7436,7 +7609,7 @@ const R = {
     for (let i = 0; i < 3; i++) {
       gl.viewport(i * this.shadowFBO.cell, 0, this.shadowFBO.cell, this.shadowFBO.cell);
       sp.m4('uVP', this.csm[i]);
-      this.drawWorld(sp, this.csmSphere[i], true);
+      this.drawWorld(sp, this.csmSphere[i], true, i);
       this.drawActors(scene.batches);
     }
     gl.cullFace(gl.BACK);
@@ -7717,6 +7890,346 @@ const R = {
 
 </script>
 <script>
+/* ===== 94_meta.js ===== */
+'use strict';
+/* ============================================================
+   Apex Drive — fuel, petrol stations, skill chains, radio
+   ============================================================ */
+
+/* ---------------- speed units ---------------- */
+const UNITS = [
+  { id: 'kmh', label: 'km/h', mul: 3.6, dist: 1000, distLabel: 'km' },
+  { id: 'mph', label: 'mph', mul: 2.236936, dist: 1609.34, distLabel: 'mi' },
+  { id: 'ms', label: 'm/s', mul: 1, dist: 1000, distLabel: 'km' },
+];
+
+/* ============================================================
+   FUEL
+   ============================================================ */
+const Fuel = {
+  cap: 62, level: 62, warned: false, refuelling: 0, station: null,
+  pricePerL: 1.85,
+
+  reset(full) { this.level = full ? this.cap : this.level; this.warned = false; },
+
+  /* burn is proportional to the work the engine is doing, plus a small idle draw */
+  update(car, dt, playing) {
+    if (!playing) return;
+    const ph = car.ph;
+    const load = clamp01(car.throttleSm || 0);
+    const rev = clamp01(car.rpm / ph.redline);
+    const boost = car.boostPsi > 0 ? 1 + car.boostPsi * 0.03 : 1;
+    const nos = car.nosActive ? 2.2 : 1;
+    // litres per second — tuned so a full tank is roughly 12 minutes of hard driving
+    const burn = (0.010 + load * rev * 0.125 * boost * nos) * (ph.baseTorque / 500) * dt;
+    this.level = Math.max(0, this.level - burn);
+
+    if (this.level < this.cap * 0.15 && !this.warned) {
+      this.warned = true;
+      Game.toast('Low fuel — find a petrol station', 'bad');
+      Audio2.ui('deny');
+    }
+    if (this.level > this.cap * 0.3) this.warned = false;
+
+    // refuel when stopped on a forecourt
+    const st = Stations.nearest(car.pos[0], car.pos[2]);
+    this.station = st;
+    const onPad = st && st.d < 9 && car.speed < 1.4;
+    if (onPad && this.level < this.cap - 0.05) {
+      const want = Math.min(this.cap - this.level, 16 * dt);
+      const cost = want * this.pricePerL;
+      if (Garage.cash >= cost) {
+        this.level += want;
+        Garage.add(-cost);
+        this.refuelling = 0.4;
+        if (!this._pumpT || Game.time - this._pumpT > 0.28) {
+          this._pumpT = Game.time; Audio2.blip(1500, .03, .025, 'sine');
+        }
+      } else if (!this._brokeT || Game.time - this._brokeT > 2) {
+        this._brokeT = Game.time;
+        Game.toast('Not enough cash for fuel', 'bad');
+      }
+    }
+    this.refuelling = Math.max(0, this.refuelling - dt);
+  },
+
+  /* dry tank kills the engine */
+  starve() { return this.level <= 0.01; },
+  frac() { return clamp01(this.level / this.cap); },
+};
+
+/* ============================================================
+   PETROL STATIONS
+   ============================================================ */
+const Stations = {
+  list: [],
+
+  build(rnd) {
+    this.list = [];
+    const N = World.N, C = World.CELL, half = World.half, B = World.BLOCK;
+    // one forecourt on a handful of blocks, spread across the map
+    const want = 7;
+    const picks = new Set();
+    let guard = 0;
+    while (picks.size < want && guard++ < 400) {
+      const bi = 1 + ((rnd() * (N - 2)) | 0), bj = 1 + ((rnd() * (N - 2)) | 0);
+      const key = bi + ',' + bj;
+      if (picks.has(key)) continue;
+      // keep them apart
+      let ok = true;
+      for (const k of picks) {
+        const [ai, aj] = k.split(',').map(Number);
+        if (Math.abs(ai - bi) + Math.abs(aj - bj) < 5) { ok = false; break; }
+      }
+      if (!ok) continue;
+      picks.add(key);
+      const bx = -half + bi * C + C * .5, bz = -half + bj * C + C * .5;
+      const side = (rnd() * 4) | 0;
+      const off = B * .5 - 9;
+      let x = bx, z = bz;
+      if (side === 0) z = bz + off; else if (side === 1) z = bz - off;
+      else if (side === 2) x = bx + off; else x = bx - off;
+      this.list.push({ x, z, name: STATION_NAMES[this.list.length % STATION_NAMES.length] });
+    }
+    return this.list;
+  },
+
+  /* build the forecourt geometry through the world's push helpers */
+  place() {
+    const CURB = World.CURB;
+    for (const s of this.list) {
+      const { x, z } = s;
+      // apron
+      World._box(x, CURB + .03, z, 17, .06, 15, 0, [.34, .34, .335], .8, 0, 0, M_CONCRETE, 0);
+      // canopy on four columns
+      for (const sx of [-1, 1]) for (const sz of [-1, 1])
+        World._box(x + sx * 6.2, CURB + 2.6, z + sz * 5.0, .38, 5.2, .38, 0, [.80, .80, .82], .45, .3, 0, M_METAL, 0);
+      World._box(x, CURB + 5.5, z, 15.5, .55, 13, 0, [.88, .88, .90], .4, .2, 0, M_METAL, 0);
+      World._box(x, CURB + 5.15, z, 15.8, .22, 13.3, 0, [.10, .55, .35], .5, 0, 1.5, M_EMISSIVE, 2);
+      // underside lighting
+      World._box(x, CURB + 5.16, z, 13, .06, 10.5, 0, [1, .97, .9], .3, 0, 2.2, M_EMISSIVE, 1);
+      World.lights.push({ p: [x, Terrain.h(x, z) + CURB + 4.8, z], col: [1, .96, .88], rad: 30, kind: 'street' });
+      // pumps
+      for (const sx of [-1, 1]) {
+        World._box(x + sx * 2.6, CURB + .18, z, 3.4, .36, 1.5, 0, [.30, .30, .31], .8, 0, 0, M_CONCRETE, 0);
+        for (const sz of [-1.0, 1.0]) {
+          World._box(x + sx * 2.6, CURB + 1.05, z + sz * .45, .95, 1.5, .55, 0, [.86, .86, .88], .45, .2, 0, M_PLASTIC, 0);
+          World._box(x + sx * 2.6, CURB + 1.55, z + sz * .72, .68, .42, .06, 0, [.05, .35, .22], .3, 0, .9, M_EMISSIVE, 2);
+        }
+      }
+      // shop
+      World._box(x, CURB + 1.8, z - 6.6, 9, 3.6, 4.2, 0, [.62, .62, .60], .8, 0, 0, M_CONCRETE, 0);
+      World._box(x, CURB + 2.0, z - 4.6, 8.2, 2.4, .12, 0, [.05, .07, .09], .08, .2, 0, M_GLASSDARK, 0);
+      World._box(x, CURB + 4.0, z - 4.5, 7, .9, .18, 0, [.15, .85, .45], .4, 0, 2.6, M_EMISSIVE, 2);
+      // price totem
+      World._box(x + 7.6, CURB + 2.4, z + 6.2, .3, 4.8, .3, 0, [.5, .5, .52], .5, .5, 0, M_METAL, 0);
+      World._box(x + 7.6, CURB + 4.6, z + 6.2, 2.2, 1.8, .22, 0, [.10, .55, .35], .4, 0, 2.2, M_EMISSIVE, 2);
+      World.addCollider(x - 4.6, z - 8.8, x + 4.6, z - 4.4, 500);
+    }
+  },
+
+  nearest(x, z) {
+    let best = null, bd = 1e9;
+    for (const s of this.list) {
+      const d = Math.hypot(s.x - x, s.z - z);
+      if (d < bd) { bd = d; best = s; }
+    }
+    return best ? { s: best, d: bd, x: best.x, z: best.z, name: best.name } : null;
+  }
+};
+
+const STATION_NAMES = ['Vertex Fuel', 'Redline Petro', 'Apex Energy', 'Nightshift Gas',
+  'Union Fuel Co.', 'Cobalt Services', 'Meridian Oil'];
+
+/* ============================================================
+   SKILL CHAIN — near misses, overtakes, air, drift
+   ============================================================ */
+const Skills = {
+  chain: 0, mult: 1, timer: 0, total: 0,
+  _passed: null, _lastNearT: 0, _lastAir: 0, _cleanT: 0,
+
+  reset() {
+    this.chain = 0; this.mult = 1; this.timer = 0;
+    this._passed = new Map();
+  },
+
+  award(points, label, colour) {
+    this.chain += points * this.mult;
+    this.timer = 3.2;
+    this.mult = Math.min(8, this.mult + 0.25);
+    HUD.skill(label, Math.round(points * this.mult), colour);
+    Audio2.skill(clamp01(this.mult / 6));
+  },
+
+  update(car, dt, playing) {
+    if (!playing) { return; }
+    if (!this._passed) this._passed = new Map();
+    const kmh = Math.abs(car.fwdSpeed) * 3.6;
+    const t = Game.time;
+
+    /* --- near miss / overtake against traffic --- */
+    const fwd = [0, 0, 0]; car.dirWorld(fwd, [0, 0, 1]);
+    for (const c of Traffic.cars) {
+      const dx = c.x - car.pos[0], dz = c.z - car.pos[2];
+      const d2 = dx * dx + dz * dz;
+      if (d2 > 900) continue;
+      const d = Math.sqrt(d2);
+      const ahead = dx * fwd[0] + dz * fwd[2];
+      const lateral = Math.abs(-dx * fwd[2] + dz * fwd[0]);
+
+      // near miss: very close alongside, at speed, without touching
+      if (d < 3.4 && lateral < 3.0 && kmh > 55 && car.impact < 0.02 && t - this._lastNearT > 0.5) {
+        this._lastNearT = t;
+        this.award(kmh > 140 ? 140 : 70, kmh > 140 ? 'CLOSE CALL!' : 'NEAR MISS', '#ffcf6b');
+      }
+      // overtake: was ahead, now behind
+      const prev = this._passed.get(c);
+      if (prev === undefined) { this._passed.set(c, ahead > 0); continue; }
+      if (prev && ahead < -1.5 && d < 16 && kmh > 45) {
+        this._passed.set(c, false);
+        this.award(55, 'OVERTAKE', '#9df3a6');
+      } else if (!prev && ahead > 1.5) this._passed.set(c, true);
+    }
+
+    /* --- air --- */
+    if (car.grounded === 0) this._lastAir = Math.max(this._lastAir, car.airTime);
+    else if (this._lastAir > 0.55) {
+      this.award(Math.round(this._lastAir * 130), this._lastAir > 1.6 ? 'HUGE AIR!' : 'AIR', '#7cf3ff');
+      this._lastAir = 0;
+    } else this._lastAir = 0;
+
+    /* --- sustained speed --- */
+    if (kmh > 210) {
+      this._fastT = (this._fastT || 0) + dt;
+      if (this._fastT > 2.5) { this._fastT = 0; this.award(120, 'VELOCITY', '#ff8fb0'); }
+    } else this._fastT = 0;
+
+    /* --- swerve: quick direction change at speed without spinning --- */
+    const yawRate = Math.abs(car.av[1]);
+    if (kmh > 70 && yawRate > 1.1 && car.driftAmount < 0.35 && car.grounded >= 3) {
+      this._swerveT = (this._swerveT || 0) + dt;
+      if (this._swerveT > 0.42) { this._swerveT = -0.8; this.award(60, 'SWERVE', '#c9a6ff'); }
+    } else this._swerveT = Math.max(0, (this._swerveT || 0) - dt);
+
+    /* --- chain decay and payout --- */
+    if (this.timer > 0) {
+      this.timer -= dt;
+      if (car.impact > 0.25) {           // a crash breaks the chain
+        HUD.skill('WRECKED', 0, '#ff3d68');
+        this.chain = 0; this.mult = 1; this.timer = 0;
+      } else if (this.timer <= 0) {
+        const cash = Math.round(this.chain * 0.55);
+        if (cash > 0) { Garage.add(cash); this.total += cash; HUD.popup('+' + money(cash), '#7cf37c'); }
+        this.chain = 0; this.mult = 1;
+      }
+    }
+  }
+};
+
+/* ============================================================
+   RADIO — three generative stations, toggled any time
+   ============================================================ */
+const Radio = {
+  on: false, station: 0, gain: null, ctx: null, timer: null, step: 0, vol: 0.5,
+  stations: [
+    {
+      name: 'APEX FM', sub: 'synthwave',
+      root: 55, scale: [0, 3, 5, 7, 10], bpm: 104, wave: 'sawtooth', pad: 1, drums: 1
+    },
+    {
+      name: 'NIGHT DRIVE', sub: 'downtempo',
+      root: 49, scale: [0, 2, 3, 7, 9], bpm: 84, wave: 'triangle', pad: 1, drums: 0
+    },
+    {
+      name: 'REDLINE RADIO', sub: 'drive rock',
+      root: 62, scale: [0, 2, 4, 7, 9], bpm: 128, wave: 'square', pad: 0, drums: 1
+    },
+  ],
+
+  init() {
+    if (!Audio2.ready || this.gain) return;
+    this.ctx = Audio2.ctx;
+    this.gain = this.ctx.createGain();
+    this.gain.gain.value = 0;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 4200;
+    this.gain.connect(lp); lp.connect(Audio2.master);
+    this.filter = lp;
+  },
+
+  toggle() {
+    Audio2.start(); this.init();
+    this.on = !this.on;
+    if (this.on) this.play(); else this.stop();
+    Game.toast(this.on ? ('Radio · ' + this.stations[this.station].name) : 'Radio off');
+    HUD.radio(this.on, this.stations[this.station]);
+  },
+
+  next() {
+    this.station = (this.station + 1) % this.stations.length;
+    if (this.on) { this.stop(); this.play(); }
+    Game.toast('Radio · ' + this.stations[this.station].name);
+    HUD.radio(this.on, this.stations[this.station]);
+  },
+
+  setVolume(v) { this.vol = v; if (this.gain) this.gain.gain.setTargetAtTime(this.on ? v * 0.28 : 0, this.ctx.currentTime, 0.2); },
+
+  play() {
+    if (!this.gain) return;
+    const st = this.stations[this.station];
+    this.gain.gain.setTargetAtTime(this.vol * 0.28, this.ctx.currentTime, 0.4);
+    const beat = 60 / st.bpm / 2;
+    this.step = 0;
+    clearInterval(this.timer);
+    this.timer = setInterval(() => this.tick(st), beat * 1000);
+  },
+
+  stop() {
+    clearInterval(this.timer); this.timer = null;
+    if (this.gain) this.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.3);
+  },
+
+  note(semi, dur, vol, type, when) {
+    const ctx = this.ctx, t = when || ctx.currentTime;
+    const f = 440 * Math.pow(2, (semi - 69) / 12);
+    const o = ctx.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f, t);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.gain);
+    o.start(t); o.stop(t + dur + 0.03);
+  },
+
+  tick(st) {
+    const s = this.step++;
+    const bar = (s >> 3) % 4;
+    const prog = [0, 5, 3, 4];              // i - VI - IV - V feel
+    const deg = prog[bar];
+    const ctx = this.ctx, now = ctx.currentTime;
+
+    // bass on the beat
+    if (s % 2 === 0) this.note(st.root + st.scale[deg % st.scale.length] - 12, 0.22, 0.24, 'sine', now);
+    // arpeggio
+    const arp = st.scale[(s * 2 + deg) % st.scale.length];
+    this.note(st.root + arp + 12, 0.16, 0.075, st.wave, now);
+    if (s % 4 === 2) this.note(st.root + arp + 19, 0.20, 0.045, st.wave, now + 0.02);
+    // pad every bar
+    if (st.pad && s % 8 === 0) {
+      for (const k of [0, 3, 7]) this.note(st.root + st.scale[deg % st.scale.length] + k, 1.5, 0.030, 'triangle', now);
+    }
+    // drums
+    if (st.drums) {
+      if (s % 4 === 0) Audio2._burst({ f0: 90, f1: 45, dur: 0.13, vol: 0.16, q: 1.2, type: 'lowpass' });
+      if (s % 8 === 4) Audio2._burst({ f0: 1800, dur: 0.10, vol: 0.07, q: 1.0 });
+      if (s % 2 === 1) Audio2._burst({ f0: 8000, dur: 0.03, vol: 0.022, q: 2.0, type: 'highpass' });
+    }
+  }
+};
+
+</script>
+<script>
 /* ===== 95_hud.js ===== */
 'use strict';
 /* ============================================================
@@ -7732,7 +8245,9 @@ const HUD = {
     ['hud', 'spdval', 'spdunit', 'gear', 'rpmArc', 'trackArc', 'redArc', 'boostArc', 'boostTrack',
       'ticks', 'minimap', 'bigmsg', 'submsg', 'popups', 'modename', 'objrows', 'driftbox',
       'driftval', 'driftmul', 'drifttime', 'boostval', 'nosfill', 'fps', 'touch',
-      'shiftlights', 'hudcash'].forEach(k => e[k] = $(k));
+      'shiftlights', 'hudcash', 'fuelfill', 'fuelpct', 'fuelbox', 'stationhint',
+      'stname', 'stdist', 'skillbox', 'sklist', 'skchain', 'skmult', 'sktime',
+      'radiochip', 'rcname', 'rcsub'].forEach(k => e[k] = $(k));
     this.mmCtx = e.minimap.getContext('2d');
     e.shiftlights.innerHTML = new Array(9).fill('<i></i>').join('');
     this.leds = [...e.shiftlights.querySelectorAll('i')];
@@ -7776,16 +8291,16 @@ const HUD = {
 
   update(g) {
     const car = g.player, e = this.el;
-    const mph = g.settings.units === 1;
-    const spd = Math.abs(car.fwdSpeed) * (mph ? 2.23694 : 3.6);
-    e.spdval.textContent = Math.round(spd);
-    e.spdunit.textContent = mph ? 'mph' : 'km/h';
+    const u = this.units(g);
+    const spd = Math.abs(car.fwdSpeed) * u.mul;
+    e.spdval.textContent = u.id === 'ms' ? spd.toFixed(1) : Math.round(spd);
+    e.spdunit.textContent = u.label;
 
     const rev = clamp01(car.rpm / car.ph.redline);
     e.rpmArc.style.strokeDasharray = `${(this.arcLen * rev).toFixed(1)} 9999`;
 
     // gear
-    const gtxt = car.gear === 0 ? 'R' : (car.clutchEngage < .4 && car.throttle < .02 && spd < 2 ? 'N' : car.gear);
+    const gtxt = car.gear === 0 ? 'R' : (car.clutchEngage < .4 && car.throttle < .02 && Math.abs(car.fwdSpeed) < 0.6 ? 'N' : car.gear);
     if (gtxt !== this._lastGear) { e.gear.textContent = gtxt; this._lastGear = gtxt; }
     e.gear.classList.toggle('shifting', car.shiftT > 0);
 
@@ -7813,6 +8328,49 @@ const HUD = {
     e.nosfill.style.opacity = car.nosActive ? 1 : .6;
 
     e.hudcash.textContent = Math.round(Garage.cash).toLocaleString('en-US');
+  },
+
+  /* speed + distance in the unit the player picked */
+  units(g) { return UNITS[clamp(g.settings.units | 0, 0, UNITS.length - 1)]; },
+
+  fuel(frac, low) {
+    this.el.fuelfill.style.width = (frac * 100).toFixed(0) + '%';
+    this.el.fuelpct.textContent = Math.round(frac * 100) + '%';
+    this.el.fuelbox.classList.toggle('low', low);
+  },
+
+  station(name, metres, u) {
+    const el = this.el.stationhint;
+    if (!name) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    this.el.stname.textContent = name;
+    const d = metres / u.dist;
+    this.el.stdist.textContent = (d < 0.1 ? Math.round(metres) + ' m' : d.toFixed(1) + ' ' + u.distLabel);
+  },
+
+  skill(label, pts, colour) {
+    const d = document.createElement('div');
+    d.className = 'sk-item';
+    d.innerHTML = label + (pts ? ' <u>+' + pts + '</u>' : '');
+    if (colour) d.style.color = colour;
+    this.el.sklist.appendChild(d);
+    while (this.el.sklist.children.length > 5) this.el.sklist.removeChild(this.el.sklist.firstChild);
+    setTimeout(() => d.remove(), 1600);
+  },
+
+  chain(show, value, mult, frac) {
+    this.el.skillbox.classList.toggle('hidden', !show);
+    if (!show) return;
+    this.el.skchain.textContent = Math.round(value).toLocaleString('en-US');
+    this.el.skmult.textContent = 'x' + mult.toFixed(1);
+    this.el.sktime.style.width = (frac * 100).toFixed(0) + '%';
+  },
+
+  radio(on, st) {
+    this.el.radiochip.classList.toggle('hidden', !on);
+    if (!on) return;
+    this.el.rcname.textContent = st.name;
+    this.el.rcsub.textContent = st.sub;
   },
 
   rows(list) {
@@ -7890,6 +8448,14 @@ const HUD = {
       c.fillRect(dx * k - 1.6, dz * k - 1.6, 3.2, 3.2);
     }
 
+    if (Stations.list.length) {
+      for (const st of Stations.list) {
+        const dx = st.x - px, dz = st.z - pz;
+        if (Math.abs(dx) > range || Math.abs(dz) > range) continue;
+        c.beginPath(); c.arc(dx * k, dz * k, 4.5, 0, TAU);
+        c.fillStyle = '#7cf37c'; c.shadowColor = '#7cf37c'; c.shadowBlur = 7; c.fill(); c.shadowBlur = 0;
+      }
+    }
     if (MapView.waypoint) {
       const dx = MapView.waypoint.x - px, dz = MapView.waypoint.z - pz;
       const cl = Math.hypot(dx, dz) * k > half - 12;
@@ -9324,7 +9890,8 @@ const Game = {
   time: 0, raceTime: 0, bestTime: 0, driftScore: 0, driftBank: 0, driftMul: 1, driftTimer: 0,
   settings: { quality: 2, scale: 1, tod: 0.43, cycle: 0, weather: 0, traffic: 46, fov: 74,
     vol: .75, volEng: 1, volTyre: 1, volWorld: 1, mblur: 1, autoq: 1, ssr: 1,
-    manual: 0, units: 0, steerRate: 1, assists: 1, shake: 1 },
+    manual: 0, units: 0, steerRate: 1, assists: 1, shake: 1,
+    invert: 0, radio: 0, station: 0, volRadio: .5 },
   todNow: 0.43,
   airBest: 0, topSpeed: 0,
   paused: false, photo: false,
@@ -9388,6 +9955,7 @@ const Game = {
     HUD.init();
     Shop.init();
     MapView.init();
+    Radio.station = this.settings.station;
     this.bindUI();
     Input.init();
     this.applyCar();
@@ -9538,6 +10106,9 @@ const Game = {
     seg('transseg', v => { S.manual = v; if (this.player) this.player.manual = v; Controls.updateShiftButtons();
       this.toast(v ? (Controls.device === 'touch' ? 'Manual — use the ▲ ▼ paddles' : 'Manual gearbox — E / Q to shift') : 'Automatic gearbox'); }, S.manual);
     seg('unitseg', v => S.units = v, S.units);
+    seg('invseg', v => S.invert = v, S.invert);
+    seg('radioseg', v => { S.radio = v; if (!!v !== Radio.on) Radio.toggle(); }, S.radio);
+    seg('stationseg', v => { S.station = v; Radio.station = v; if (Radio.on) { Radio.stop(); Radio.play(); } HUD.radio(Radio.on, Radio.stations[v]); }, S.station);
     seg('assistseg', v => S.assists = v, S.assists);
 
     const rng = (id, out, fn, fmt) => {
@@ -9558,6 +10129,7 @@ const Game = {
     rng('volEng', 'volEngo', v => S.volEng = v / 100, v => v + '%');
     rng('volTyre', 'volTyreo', v => S.volTyre = v / 100, v => v + '%');
     rng('volWorld', 'volWorldo', v => S.volWorld = v / 100, v => v + '%');
+    rng('volRadio', 'volRadioo', v => { S.volRadio = v / 100; Radio.setVolume(S.volRadio); }, v => v + '%');
 
     // mobile browsers fire resize every time the address bar slides; each one
     // used to reallocate the entire render target set
@@ -9651,6 +10223,7 @@ const Game = {
     this.driftScore = 0; this.driftBank = 0; this.driftMul = 1; this.driftTimer = 0;
     this.topSpeed = 0; this.airBest = 0; this.trapBest = 0;
     this.route = []; this.cpIndex = 0;
+    Fuel.reset(true); Skills.reset();
     this.countdown = (m === 'free') ? 0 : 3.999;
     Controls.recalibrate(); Controls.updateShiftButtons(); Controls.measure();
     this._cdLast = -1;
@@ -9721,14 +10294,17 @@ const Game = {
       this.player.manual = this.settings.manual;
       this.syncSeg('transseg', this.settings.manual);
       Controls.updateShiftButtons();
-      this.toast(this.settings.manual ? 'MANUAL — E upshift, Q downshift' : 'AUTOMATIC');
+      this.toast(this.settings.manual ? 'MANUAL — Q up, E down' : 'AUTOMATIC');
       Audio2.ui('tick');
     }
+    if (code === 'KeyB') { Radio.toggle(); this.syncSeg('radioseg', Radio.on ? 1 : 0); return; }
+    if (code === 'KeyN') { Radio.next(); this.syncSeg('stationseg', Radio.station); return; }
     if (this.settings.manual) {
-      if (code === 'KeyE' || code === 'ShiftRight') {
+      // Q shifts up, E shifts down
+      if (code === 'KeyQ' || code === 'ShiftRight') {
         const r = this.player.shiftUp(); if (r > 0) Audio2.shift(true);
       }
-      if (code === 'KeyQ' || code === 'ControlRight') {
+      if (code === 'KeyE' || code === 'ControlRight') {
         const r = this.player.shiftDown();
         if (r > 0) Audio2.shift(false);
         else if (r < 0) { Audio2.grind(); HUD.popup('OVER-REV', '#ff3d68'); }
@@ -9796,7 +10372,7 @@ const Game = {
     const playing = this.state === 'play' && !this.paused && !this.photo && !MapView.open;
 
     const inp = playing
-      ? { steer: Input.steer, throttle: Input.throttle, brake: Input.brake }
+      ? { steer: Input.steer * (S.invert ? -1 : 1), throttle: Input.throttle, brake: Input.brake }
       : { steer: 0, throttle: 0, brake: 0 };
 
     // race start lights
@@ -9853,6 +10429,9 @@ const Game = {
     const wantLights = (R.sky.night > .35 || S.weather === 2) !== !!p.headlightsManual;
     p.headlights = damp(p.headlights, wantLights ? 1 : 0, 4, dt);
 
+    Fuel.update(p, dt, playing);
+    if (Fuel.starve()) { inp.throttle = 0; p.throttle = 0; p.throttleSm = 0; }
+    Skills.update(p, dt, playing);
     Traffic.update(dt, p);
 
     if (p.impact > .05 && this.time - p.lastImpactT > .18) {
@@ -10492,7 +11071,15 @@ const Game = {
     this.update(dt);
     this.buildBatches();
     R.render(this.scene, dt);
-    if (this.state === 'play' && !this.photo) { HUD.update(this); HUD.minimap(this); }
+    if (this.state === 'play' && !this.photo) {
+      HUD.update(this);
+      HUD.minimap(this);
+      const u = HUD.units(this);
+      HUD.fuel(Fuel.frac(), Fuel.frac() < 0.16);
+      const st = Fuel.station;
+      HUD.station(st && (Fuel.frac() < 0.35 || st.d < 60) ? st.name : null, st ? st.d : 0, u);
+      HUD.chain(Skills.chain > 0, Skills.chain, Skills.mult, clamp01(Skills.timer / 3.2));
+    }
   }
 };
 

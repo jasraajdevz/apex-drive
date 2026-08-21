@@ -528,5 +528,12 @@ const Audio2 = {
   chord(freqs, dur = 0.5, vol = 0.07) {
     freqs.forEach((f, i) => setTimeout(() => this._tone(f, dur, vol, 'triangle'), i * 60));
   },
+  skill(intensity) {
+    if (!this.ready) return;
+    const base = 880 + intensity * 520;
+    this._tone(base, 0.07, 0.045 + intensity * 0.02, 'triangle');
+    setTimeout(() => this._tone(base * 1.5, 0.09, 0.04 + intensity * 0.02, 'triangle'), 55);
+  },
+
   checkpoint() { this._tone(1480, 0.08, 0.06, 'triangle'); setTimeout(() => this._tone(2200, 0.10, 0.05, 'sine'), 60); },
 };

@@ -121,7 +121,8 @@
 
     <div class="tabpane hidden" data-p="drv">
       <div class="row"><label>Transmission</label><div class="seg" id="transseg"><button data-v="0" class="on">Automatic</button><button data-v="1">Manual</button></div></div>
-      <div class="row"><label>Units</label><div class="seg" id="unitseg"><button data-v="0" class="on">km/h</button><button data-v="1">mph</button></div></div>
+      <div class="row"><label>Units</label><div class="seg" id="unitseg"><button data-v="0" class="on">km/h</button><button data-v="1">mph</button><button data-v="2">m/s</button></div></div>
+      <div class="row"><label>Invert steering</label><div class="seg" id="invseg"><button data-v="0" class="on">Off</button><button data-v="1">On</button></div></div>
       <div class="row"><label>Steering speed</label><input type="range" id="steerrate" min="40" max="160" value="100"><output id="steerrateo">100%</output></div>
       <div class="row"><label>Assists</label><div class="seg" id="assistseg"><button data-v="0">Off</button><button data-v="1" class="on">Light</button><button data-v="2">Full</button></div></div>
       <div class="row"><label>Camera shake</label><input type="range" id="shake" min="0" max="150" value="100"><output id="shakeo">100%</output></div>
@@ -155,6 +156,9 @@
       <div class="row"><label>Engine</label><input type="range" id="volEng" min="0" max="150" value="100"><output id="volEngo">100%</output></div>
       <div class="row"><label>Tyres</label><input type="range" id="volTyre" min="0" max="150" value="100"><output id="volTyreo">100%</output></div>
       <div class="row"><label>World</label><input type="range" id="volWorld" min="0" max="150" value="100"><output id="volWorldo">100%</output></div>
+      <div class="row"><label>Radio</label><div class="seg" id="radioseg"><button data-v="0" class="on">Off</button><button data-v="1">On</button></div></div>
+      <div class="row"><label>Station</label><div class="seg" id="stationseg"><button data-v="0" class="on">Apex FM</button><button data-v="1">Night Drive</button><button data-v="2">Redline</button></div></div>
+      <div class="row"><label>Radio volume</label><input type="range" id="volRadio" min="0" max="100" value="50"><output id="volRadioo">50%</output></div>
     </div>
 
     <div class="actions">
@@ -205,6 +209,28 @@
 
   <div id="popups"></div>
 
+  <div id="skillbox" class="hidden">
+    <div class="sk-list" id="sklist"></div>
+    <div class="sk-chain"><b id="skchain">0</b><i id="skmult">x1.0</i></div>
+    <div class="sk-bar"><s id="sktime"></s></div>
+  </div>
+
+  <div id="radiochip" class="hidden">
+    <span class="rc-dot"></span><b id="rcname">APEX FM</b><i id="rcsub">synthwave</i>
+  </div>
+
+  <div id="fuelbox">
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path d="M4 20V5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v15M3 20h11M6 8h5" fill="none"
+            stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M16 9l2-2v9a1.5 1.5 0 0 0 3 0V9l-3-3" fill="none" stroke="currentColor"
+            stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <div class="fbar"><i id="fuelfill"></i></div>
+    <b id="fuelpct">100%</b>
+  </div>
+  <div id="stationhint" class="hidden"><b id="stname">—</b><i id="stdist">0 km</i></div>
+
   <div id="cluster">
     <svg id="dial" viewBox="0 0 300 300">
       <defs>
@@ -250,8 +276,8 @@
     <div class="tc brake" id="tbrake" data-ctl="brake">BRAKE</div>
     <div class="tc small hand" id="thand" data-ctl="hand">E‑BRK</div>
     <div class="tc small nos"  id="tnos"  data-ctl="nos">NOS</div>
-    <div class="tc shift up   hidden" id="tup"   data-ctl="up">▲</div>
-    <div class="tc shift down hidden" id="tdown" data-ctl="down">▼</div>
+    <div class="tc shift up   hidden" id="tup"   data-ctl="up">+</div>
+    <div class="tc shift down hidden" id="tdown" data-ctl="down">−</div>
     <!-- utility -->
     <div class="tc mini" id="tcam"   data-ctl="cam">CAM</div>
     <div class="tc mini" id="treset" data-ctl="reset">RESET</div>

@@ -181,7 +181,7 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border:0;border-radiu
 #shiftlights i.on3{background:var(--accent2);box-shadow:0 0 14px var(--accent2)}
 #shiftlights.flash i{background:#fff;box-shadow:0 0 18px #fff}
 
-#minimap{position:absolute;top:18px;right:20px;width:200px;height:200px;opacity:.95;
+#minimap{position:absolute;top:18px;right:20px;width:232px;height:232px;opacity:.95;
   filter:drop-shadow(0 8px 26px rgba(0,0,0,.7))}
 
 #center{position:absolute;top:24%;left:0;right:0;text-align:center}
@@ -398,7 +398,7 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
 .maphead .xbtn{margin-left:auto}
 .mapwrap{flex:1;min-height:0;position:relative;overflow:hidden}
 #bigmap{position:absolute;inset:0;display:block;cursor:crosshair;touch-action:none}
-.mapfoot{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+.mapfoot{display:flex;align-items:center;gap:16px;flex-wrap:wrap;row-gap:10px;
   padding:12px clamp(14px,3vw,30px);border-top:1px solid var(--line)}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;letter-spacing:1.4px;color:var(--dim)}
 .legend span{display:flex;align-items:center;gap:6px}
@@ -441,4 +441,54 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
 #menubtn:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 0 16px rgba(34,227,255,.24)}
 @media (max-width:900px){
   #menubtn{top:12px;left:12px;transform:none;width:42px;height:38px}
+}
+
+/* ---------- fuel, skills, radio ---------- */
+#fuelbox{position:absolute;right:26px;bottom:300px;display:flex;align-items:center;gap:8px;
+  background:rgba(9,14,22,.68);border:1px solid var(--line);border-radius:10px;padding:6px 11px;
+  color:var(--dim);backdrop-filter:blur(8px)}
+#fuelbox .fbar{width:86px;height:5px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden}
+#fuelbox .fbar i{display:block;height:100%;width:100%;border-radius:3px;
+  background:linear-gradient(90deg,#7cf37c,#ffcf6b);transition:width .3s}
+#fuelbox.low .fbar i{background:linear-gradient(90deg,#ff3d68,#ffcf6b)}
+#fuelbox.low{border-color:rgba(255,61,104,.55);color:#ffb2c0;animation:fpulse 1.1s ease-in-out infinite}
+@keyframes fpulse{0%,100%{opacity:1}50%{opacity:.55}}
+#fuelbox b{font-size:12px;color:var(--ink);min-width:34px;text-align:right}
+#stationhint{position:absolute;right:26px;bottom:268px;display:flex;align-items:baseline;gap:8px;
+  background:rgba(9,14,22,.68);border:1px solid rgba(124,243,124,.4);border-radius:10px;
+  padding:5px 11px;color:#c9ffcf}
+#stationhint b{font-size:12px;letter-spacing:1.2px}
+#stationhint i{font-style:normal;font-size:12px;font-weight:700}
+
+#skillbox{position:absolute;left:26px;top:50%;transform:translateY(-50%);width:230px;pointer-events:none}
+.sk-list{display:flex;flex-direction:column-reverse;gap:3px;margin-bottom:8px;min-height:96px;justify-content:flex-end}
+.sk-item{font-size:15px;font-weight:700;letter-spacing:1.6px;text-shadow:0 2px 12px rgba(0,0,0,.85);
+  animation:ski 1.5s ease-out forwards;display:flex;gap:8px;align-items:baseline}
+.sk-item u{text-decoration:none;font-size:12px;opacity:.85}
+@keyframes ski{0%{opacity:0;transform:translateX(-16px)}12%{opacity:1;transform:none}
+  75%{opacity:1}100%{opacity:0;transform:translateX(6px)}}
+.sk-chain{display:flex;align-items:baseline;gap:8px}
+.sk-chain b{font-size:32px;font-weight:800;color:var(--warm);text-shadow:0 0 26px rgba(255,190,80,.6)}
+.sk-chain i{font-style:normal;font-size:16px;font-weight:700;color:#fff;opacity:.9}
+.sk-bar{width:150px;height:3px;background:rgba(255,255,255,.15);border-radius:3px;margin-top:5px;overflow:hidden}
+.sk-bar s{display:block;height:100%;width:100%;text-decoration:none;background:var(--warm)}
+
+#radiochip{position:absolute;left:26px;bottom:26px;display:flex;align-items:baseline;gap:8px;
+  background:rgba(9,14,22,.68);border:1px solid var(--line);border-radius:10px;padding:6px 12px;
+  backdrop-filter:blur(8px)}
+#radiochip .rc-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 10px var(--accent);align-self:center;animation:rcp 1.6s ease-in-out infinite}
+@keyframes rcp{0%,100%{opacity:1}50%{opacity:.35}}
+#radiochip b{font-size:12.5px;letter-spacing:2px}
+#radiochip i{font-style:normal;font-size:10.5px;letter-spacing:1.6px;color:var(--dim)}
+
+
+@media (max-width:900px){
+  #fuelbox{bottom:auto;top:60px;right:12px;padding:4px 8px}
+  #fuelbox .fbar{width:56px}
+  #stationhint{bottom:auto;top:96px;right:12px}
+  #skillbox{left:12px;width:150px;transform:translateY(-60%)}
+  .sk-chain b{font-size:24px}
+  #radiochip{left:12px;bottom:12px;padding:4px 9px}
+  #radiochip i{display:none}
 }
