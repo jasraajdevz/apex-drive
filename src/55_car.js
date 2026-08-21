@@ -336,7 +336,7 @@ function buildCar(spec) {
    ============================================================ */
 const CAR_SPECS = [
   {
-    id: 'vypr', price: 168000, name: 'Vypr V10', cls: 'Supercar',
+    id: 'vypr', price: 168000, name: 'Auros Vyra V10', cls: 'Supercar',
     len: 4.52, width: 2.00, bodyW: .87, wheelR: .345, wheelW: .34, spokes: 5, rimStyle: 'split', rhd: 1,
     flareF: .065, flareR: .105, cage: 0, cpillar: 0, quadPipes: 1,
     grilleY: .44, lightY: .68, lampW: .30, tailY: .76, tailBar: 1, deckY: .96,
@@ -344,6 +344,7 @@ const CAR_SPECS = [
     wing: { z: .34, y: 1.02, chord: .30, h: .20, gurney: 1 },
     sig: { midEngine: 1, buttress: 1, louvres: 1, yLamps: 1,
            centreExhaust: 1, finTail: 1, canards: 1 },
+    voice: { peaks: [[120, 2.0, 5], [520, 1.5, 7], [2400, 1.6, 6]], drive: 2.4, rasp: 0.85, lope: 0.05, tail: 1.15, idle: 1080 },
     profile: {
       width: [.66, .92, 1.00, 1.00, 1.00, .96, .78],
       sill:  [.26, .14, .11, .11, .11, .15, .28],
@@ -357,13 +358,14 @@ const CAR_SPECS = [
     phys: { cylinders: 10, sound: 'v10', mass: 1420, power: 470, redline: 8600, gears: [3.4, 2.20, 1.62, 1.28, 1.02, .84], final: 3.55, drive: 'awd', gripF: 1.62, gripR: 1.72, cgH: .40, drag: .32, dfF: .55, dfR: .95, brake: 2.35, steerMax: .60 }
   },
   {
-    id: 'kestrel', price: 74000, name: 'Kestrel GT', cls: 'Grand Tourer',
+    id: 'kestrel', price: 74000, name: 'Marlowe Sabre GT', cls: 'Grand Tourer',
     len: 4.78, width: 1.94, bodyW: .89, wheelR: .355, wheelW: .30, spokes: 10, rimStyle: 'mesh', rhd: 1,
     flareF: .055, flareR: .085, cage: 0, cpillar: 1, quadPipes: 0,
     grilleY: .50, lightY: .76, lampW: .26, tailY: .84, tailBar: 0, deckY: 1.02,
     axleF: 1.48, axleR: -1.42, trackF: .80, trackR: .82,
     ducktail: { y: .98, z: .30 },
     sig: { chromeTrim: 1, roundTails: 1, fourDoor: 0 },
+    voice: { peaks: [[150, 2.2, 8], [430, 1.5, 4], [1700, 1.3, 1]], drive: 1.9, rasp: 0.35, lope: 0.10, tail: 0.95, idle: 820 },
     profile: {
       width: [.66, .93, 1.00, 1.00, .99, .95, .78],
       sill:  [.28, .16, .13, .13, .13, .17, .30],
@@ -377,13 +379,14 @@ const CAR_SPECS = [
     phys: { cylinders: 8, sound: 'v8', mass: 1620, power: 405, redline: 7400, gears: [3.2, 2.05, 1.50, 1.18, .96, .80], final: 3.35, drive: 'rwd', gripF: 1.50, gripR: 1.58, cgH: .44, drag: .34, dfF: .35, dfR: .55, brake: 2.05, steerMax: .58 }
   },
   {
-    id: 'bruiser', price: 38000, name: 'Bruiser 440', cls: 'Muscle',
+    id: 'bruiser', price: 38000, name: 'Corbin Brute 440', cls: 'Muscle',
     len: 4.96, width: 1.98, bodyW: .90, wheelR: .365, wheelW: .34, spokes: 5, rimStyle: 'split', rhd: 1,
     flareF: .06, flareR: .115, cage: 0, cpillar: 1, quadPipes: 1,
     grilleY: .58, lightY: .84, lampW: .24, tailY: .90, tailBar: 1, deckY: 1.08,
     axleF: 1.52, axleR: -1.48, trackF: .82, trackR: .85,
     ducktail: { y: 1.06, z: .28 },
     sig: { quadLamps: 1, hoodScoop: 1, sideExhaust: 1, bonnetPins: 1 },
+    voice: { peaks: [[96, 2.6, 11], [330, 1.5, 6], [1450, 1.1, -1]], drive: 2.2, rasp: 0.45, lope: 0.30, tail: 1.05, idle: 720 },
     profile: {
       width: [.70, .95, 1.00, 1.00, 1.00, .96, .82],
       sill:  [.30, .19, .16, .16, .16, .20, .32],
@@ -397,12 +400,13 @@ const CAR_SPECS = [
     phys: { cylinders: 8, sound: 'v8', mass: 1740, power: 455, redline: 6400, gears: [2.95, 1.85, 1.36, 1.06, .86, .74], final: 3.70, drive: 'rwd', gripF: 1.36, gripR: 1.42, cgH: .48, drag: .40, dfF: .18, dfR: .28, brake: 1.80, steerMax: .55 }
   },
   {
-    id: 'nomad', price: 62000, name: 'Nomad XR', cls: 'Crossover',
+    id: 'nomad', price: 62000, name: 'Sable Nomad XR', cls: 'Crossover',
     len: 4.72, width: 1.96, bodyW: .91, wheelR: .45, wheelW: .32, spokes: 7, rimStyle: 'split', rhd: 1,
     flareF: .055, flareR: .075, cage: 0, cpillar: 1, quadPipes: 0,
     grilleY: .84, lightY: 1.06, lampW: .26, tailY: 1.16, tailBar: 0, deckY: 1.50,
     axleF: 1.42, axleR: -1.40, trackF: .80, trackR: .81,
     sig: { roofRails: 1, cladding: 1, skidPlates: 1, spareWheel: 1, fourDoor: 1 },
+    voice: { peaks: [[135, 2.0, 6], [470, 1.4, 3], [1600, 1.2, -3]], drive: 1.5, rasp: 0.20, lope: 0.06, tail: 0.80, idle: 780 },
     profile: {
       width: [.72, .95, 1.00, 1.00, 1.00, .97, .84],
       sill:  [.54, .46, .44, .44, .44, .47, .56],
@@ -416,13 +420,14 @@ const CAR_SPECS = [
     phys: { cylinders: 6, sound: 'v6', mass: 1930, power: 360, redline: 6800, gears: [3.6, 2.30, 1.68, 1.30, 1.02, .84], final: 3.60, drive: 'awd', gripF: 1.40, gripR: 1.44, cgH: .60, drag: .44, dfF: .10, dfR: .16, brake: 1.85, steerMax: .56 }
   },
   {
-    id: 'vector', price: 245000, name: 'Vector RS', cls: 'Track Weapon',
+    id: 'vector', price: 245000, name: 'Auros Vektor RS', cls: 'Track Weapon',
     len: 4.62, width: 2.04, bodyW: .86, wheelR: .35, wheelW: .38, spokes: 6, rimStyle: 'mesh', rhd: 1,
     flareF: .075, flareR: .125, cage: 1, cpillar: 0, quadPipes: 1,
     grilleY: .38, lightY: .60, lampW: .26, tailY: .70, tailBar: 1, deckY: .90,
     axleF: 1.46, axleR: -1.40, trackF: .86, trackR: .90,
     wing: { z: .20, y: 1.14, chord: .36, h: .34, gurney: 1 },
     sig: { swanWing: 1, canards: 1, towHook: 1, bonnetPins: 1, roofScoop: 1 },
+    voice: { peaks: [[130, 1.8, 4], [640, 1.6, 8], [2900, 1.7, 8]], drive: 2.8, rasp: 1.00, lope: 0.03, tail: 1.25, idle: 1250 },
     profile: {
       width: [.68, .95, 1.00, 1.00, 1.00, .98, .84],
       sill:  [.22, .10, .08, .08, .08, .12, .24],

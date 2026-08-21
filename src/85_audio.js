@@ -307,7 +307,8 @@ const Audio2 = {
     while (zi < ENGINE_ZONES.length - 2 && rpm > ENGINE_ZONES[zi + 1]) zi++;
     const lo = ENGINE_ZONES[zi], hi = ENGINE_ZONES[zi + 1];
     const f = clamp01((rpm - lo) / Math.max(1, hi - lo));
-    const wobble = 1 + (rpm < 1400 ? Math.sin(t * 11.3) * 0.010 * (1 - load) : 0);
+    const lope = (car.ph.voice ? car.ph.voice.lope : 0.08);
+    const wobble = 1 + (rpm < 1700 ? (Math.sin(t * 9.1) * 0.6 + Math.sin(t * 5.3) * 0.4) * lope * 0.09 * (1 - load) : 0);
 
     for (let i = 0; i < this.zones.length; i++) {
       const z = this.zones[i];
@@ -330,10 +331,35 @@ const Audio2 = {
       if (limiterCut < 0.5) this.misfire(0.8);
     }
     const exhaust = 1 + (tune.exhaust || 0) * 0.28;
-    N.eng.lp.frequency.setTargetAtTime((1500 + 5200 * rev + 3400 * load) * exhaust, t, 0.035);
-    N.eng.p1.gain.setTargetAtTime(6 + 5 * (1 - rev), t, 0.08);
-    N.eng.p2.gain.setTargetAtTime(3 + 6 * load, t, 0.08);
-    N.eng.p3.gain.setTargetAtTime(-1 + 8 * load + 3 * rev, t, 0.08);
+
+    /* per-car exhaust voice — this is what stops every car sounding the same */
+    const V = car.ph.voice;
+    if (V && this._voiceKey !== car.ph.engineId + '|' + (car.spec && car.spec.id)) {
+      this._voiceKey = car.ph.engineId + '|' + (car.spec && car.spec.id);
+      const blend = car.ph.voiceShift ? 0.45 : 1.0;   // a swapped engine dilutes the car's own voice
+      const peaks = [N.eng.p1, N.eng.p2, N.eng.p3];
+      for (let i = 0; i < 3; i++) {
+        const q = V.peaks[i];
+        peaks[i].frequency.setTargetAtTime(lerp(peaks[i].frequency.value, q[0], blend), t, 0.05);
+        peaks[i].Q.setTargetAtTime(q[1], t, 0.05);
+      }
+      this._voiceGains = V.peaks.map(q => q[2] * blend);
+      this._voiceDrive = lerp(2.1, V.drive, blend);
+      this._voiceRasp = V.rasp * blend;
+      this._voiceTail = V.tail;
+      // reshape the saturation curve for this engine's character
+      const cv = new Float32Array(2048);
+      const d = this._voiceDrive;
+      for (let i = 0; i < 2048; i++) { const x = i / 1023.5 - 1; cv[i] = Math.tanh(x * d) * 0.85; }
+      N.eng.shaper.curve = cv;
+    }
+    const vg = this._voiceGains || [7, 5, 2];
+    const rasp = this._voiceRasp === undefined ? 0.5 : this._voiceRasp;
+    const tail = this._voiceTail === undefined ? 1 : this._voiceTail;
+    N.eng.lp.frequency.setTargetAtTime((1500 + 5200 * rev + 3400 * load) * exhaust * tail, t, 0.035);
+    N.eng.p1.gain.setTargetAtTime(vg[0] * (0.55 + 0.55 * (1 - rev)), t, 0.08);
+    N.eng.p2.gain.setTargetAtTime(vg[1] * (0.45 + 0.75 * load), t, 0.08);
+    N.eng.p3.gain.setTargetAtTime(vg[2] * (0.30 + 0.9 * load + 0.5 * rev) + rasp * 6 * rev, t, 0.08);
     N.eng.p4.gain.setTargetAtTime(-3 + 7 * load * rev, t, 0.08);
     const vol = (0.22 + 0.52 * load + 0.38 * rev) * prox * limiterCut * (0.85 + 0.30 * (tune.exhaust || 0));
     N.eng.out.gain.setTargetAtTime(vol * 0.82, t, 0.030);

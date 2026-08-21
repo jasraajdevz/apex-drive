@@ -165,9 +165,19 @@ const Controls = {
   },
 
   helpHTML() {
-    if (this.device === 'touch') return '<b>Touch</b> · left thumb steers, right thumb is the throttle. E‑BRK swings the back out, NOS is the boost.';
-    if (this.device === 'pad') return '<b>Gamepad</b> · RT throttle · LT brake · left stick steer · A handbrake · B nitrous · RB/LB shift · Y camera';
-    return '<b>Keyboard</b> · W A S D or arrows · Space handbrake · Shift nitrous · E/Q shift · X clutch · C camera · R reset · T gearbox · P photo · Esc pause';
+    const k = t => '<span class="kbd">' + t + '</span>';
+    const g = (keys, what) => '<span class="grp">' + keys + ' ' + what + '</span>';
+    if (this.device === 'touch')
+      return g('◀ ▶', 'steer') + g('GAS', 'throttle') + g('BRAKE', 'brake / reverse') +
+        g('E‑BRK', 'handbrake') + g('NOS', 'boost') + g('+ −', 'gears in manual');
+    if (this.device === 'pad')
+      return g(k('LS'), 'steer') + g(k('RT'), 'throttle') + g(k('LT'), 'brake') +
+        g(k('A'), 'handbrake') + g(k('B'), 'nitrous') + g(k('LB') + k('RB'), 'gears') +
+        g(k('Y'), 'camera') + g(k('Start'), 'pause');
+    return g(k('W') + k('A') + k('S') + k('D'), 'drive') + g(k('Space'), 'handbrake') +
+      g(k('Shift'), 'nitrous') + g(k('Q') + k('E'), 'gears') + g(k('X'), 'clutch') +
+      g(k('C'), 'camera') + g(k('M'), 'map') + g(k('B'), 'radio') +
+      g(k('R'), 'reset') + g(k('T'), 'gearbox') + g(k('P'), 'photo') + g(k('Esc'), 'pause');
   },
 
   bindSettings() {

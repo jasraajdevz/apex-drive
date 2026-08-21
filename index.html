@@ -54,25 +54,42 @@
 
 <!-- ===================== MAIN MENU ===================== -->
 <div id="menu" class="screen hidden">
-  <div class="menu-left">
-    <div class="brand small">
-      <div class="brand-mark" data-txt="APEX">APEX</div>
-      <div class="brand-sub">D&nbsp;R&nbsp;I&nbsp;V&nbsp;E</div>
+  <div class="menu-scrim"></div>
+  <div class="menu-inner">
+
+    <header class="menu-top">
+      <div class="brand">
+        <div class="brand-mark" data-txt="APEX">APEX</div>
+        <div class="brand-sub">D&nbsp;R&nbsp;I&nbsp;V&nbsp;E</div>
+      </div>
+      <div class="menu-wallet">
+        <u>Balance</u><b id="menucash">$0</b>
+      </div>
+    </header>
+
+    <div class="menu-body">
+      <nav id="mainnav">
+        <button class="mi" data-act="free">
+          <i class="mi-ic">🌐</i><span>Free Roam</span><em>own the city</em></button>
+        <button class="mi" data-act="race">
+          <i class="mi-ic">🚩</i><span>Checkpoint Run</span><em>beat the clock</em></button>
+        <button class="mi" data-act="drift">
+          <i class="mi-ic">💨</i><span>Drift Attack</span><em>score on the slide</em></button>
+        <button class="mi" data-act="speed">
+          <i class="mi-ic">⚡</i><span>Speed Trap</span><em>terminal velocity</em></button>
+        <button class="mi" data-act="shop">
+          <i class="mi-ic">🔧</i><span>Garage</span><em>buy · tune · paint · stats</em></button>
+        <button class="mi" data-act="settings">
+          <i class="mi-ic">⚙️</i><span>Settings</span><em>graphics · audio · world</em></button>
+      </nav>
+      <aside class="menu-card" id="menucard"></aside>
     </div>
-    <nav id="mainnav">
-      <button class="mi" data-act="free"><span>Free Roam</span><em>own the city</em></button>
-      <button class="mi" data-act="race"><span>Checkpoint Run</span><em>beat the clock</em></button>
-      <button class="mi" data-act="drift"><span>Drift Attack</span><em>score on the slide</em></button>
-      <button class="mi" data-act="speed"><span>Speed Trap</span><em>terminal velocity</em></button>
-      <button class="mi" data-act="shop"><span>Garage</span><em>buy · tune · paint · stats</em></button>
-      <button class="mi" data-act="settings"><span>Settings</span><em>graphics · audio · world</em></button>
-    </nav>
-    <div class="hint">
-      <b>W A S D</b> drive · <b>Space</b> handbrake · <b>Shift</b> nitrous ·
-      <b>E/Q</b> shift · <b>C</b> camera · <b>R</b> reset · <b>P</b> photo
-    </div>
+
+    <footer class="menu-foot">
+      <div class="hint" id="menuhint"></div>
+    </footer>
+
   </div>
-  <div class="menu-card" id="menucard"></div>
 </div>
 
 <!-- ===================== SHOP / GARAGE ===================== -->
@@ -360,8 +377,9 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
 .panel-screen{justify-content:center;background:rgba(4,7,12,.60);backdrop-filter:blur(16px) saturate(130%)}
 
 /* ---------- brand ---------- */
-.brand{margin-bottom:30px;position:relative}
-.brand-mark{font-size:104px;font-weight:800;letter-spacing:-3px;line-height:.84;position:relative;
+.brand{position:relative;min-width:0}
+.brand-mark{font-size:clamp(38px,7.4vw,92px);font-weight:800;letter-spacing:-.028em;
+  line-height:.86;position:relative;
   background:linear-gradient(98deg,#fff 0%,#cdeeff 34%,var(--accent) 68%,#2a86ff 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
   filter:drop-shadow(0 8px 38px rgba(34,227,255,.34))}
@@ -371,8 +389,10 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
   animation:glitch 5.5s steps(1) infinite}
 @keyframes glitch{0%,88%,100%{transform:translateX(3px);opacity:0}
   90%{transform:translateX(-6px);opacity:.7}92%{transform:translateX(5px);opacity:.5}94%{opacity:0}}
-.brand-sub{font-size:19px;letter-spacing:14px;color:var(--dim);margin-top:9px}
-.brand.small .brand-mark{font-size:62px}.brand.small .brand-sub{font-size:12px;letter-spacing:10px}
+.brand-sub{font-size:clamp(10px,1.35vw,17px);letter-spacing:clamp(6px,1.1vw,13px);
+  color:var(--dim);margin-top:7px;white-space:nowrap}
+.brand.small .brand-mark{font-size:clamp(30px,5vw,58px)}
+.brand.small .brand-sub{font-size:11px;letter-spacing:8px}
 
 /* ---------- loading ---------- */
 #load{flex-direction:column;justify-content:center;align-items:center;z-index:60;
@@ -383,27 +403,84 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background
 .loadmsg{margin-top:16px;font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--dim)}
 
 /* ---------- main menu ---------- */
-#menu{background:linear-gradient(100deg,rgba(4,7,12,.94) 0%,rgba(4,7,12,.74) 32%,transparent 62%)}
-.menu-left{padding:0 clamp(26px,6vw,96px);max-width:620px;z-index:1}
-#mainnav{display:flex;flex-direction:column;gap:1px}
-.mi{background:none;border:0;border-left:2px solid transparent;color:var(--dim);cursor:pointer;
-  text-align:left;padding:10px 18px;font-family:var(--font);transition:.16s;display:block;width:100%}
-.mi span{display:block;font-size:26px;font-weight:700;letter-spacing:.4px;color:#cbdcef;transition:.16s}
-.mi em{display:block;font-style:normal;font-size:11px;letter-spacing:2.8px;text-transform:uppercase;opacity:.5;margin-top:1px}
-.mi:hover,.mi.sel{border-left-color:var(--accent);background:linear-gradient(90deg,rgba(34,227,255,.14),transparent 72%)}
-.mi:hover span,.mi.sel span{color:#fff;transform:translateX(6px)}
-.hint{margin-top:30px;font-size:11.5px;letter-spacing:1.2px;color:var(--dim);opacity:.85;line-height:1.9;max-width:460px}
-.hint b{color:var(--accent);font-weight:600}
-.menu-card{position:absolute;right:clamp(20px,4vw,64px);bottom:clamp(20px,5vh,60px);
-  width:min(330px,40vw);background:var(--glass);border:1px solid var(--line);border-radius:14px;
-  padding:16px 18px;backdrop-filter:blur(12px)}
-.menu-card h4{font-size:10.5px;letter-spacing:3.4px;color:var(--dim);text-transform:uppercase;font-weight:600}
-.menu-card .mc-name{font-size:25px;font-weight:700;margin-top:2px;letter-spacing:.3px}
-.menu-card .mc-sub{font-size:11px;letter-spacing:2.6px;color:var(--accent);text-transform:uppercase;margin-bottom:12px}
+#menu{display:block;overflow:hidden}
+.menu-scrim{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(105deg,rgba(3,6,10,.95) 0%,rgba(3,6,10,.80) 34%,
+    rgba(3,6,10,.25) 62%,transparent 84%)}
+@media (max-aspect-ratio: 1/1){
+  .menu-scrim{background:linear-gradient(180deg,rgba(3,6,10,.93) 0%,rgba(3,6,10,.80) 46%,
+    rgba(3,6,10,.55) 74%,rgba(3,6,10,.30) 100%)}
+}
+.menu-inner{position:absolute;inset:0;display:flex;flex-direction:column;
+  padding:clamp(16px,3.2vh,34px) clamp(16px,4vw,72px);gap:clamp(10px,2vh,24px);
+  max-width:100%;overflow:hidden}
+
+.menu-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex:0 0 auto}
+.menu-wallet{text-align:right;flex:0 0 auto}
+.menu-wallet u{display:block;text-decoration:none;font-size:9px;letter-spacing:3px;
+  color:var(--dim);text-transform:uppercase}
+.menu-wallet b{font-size:clamp(17px,2.4vw,25px);font-weight:700;color:var(--good);
+  text-shadow:0 0 20px rgba(124,243,124,.3)}
+
+.menu-body{flex:1 1 auto;min-height:0;display:flex;align-items:center;gap:clamp(16px,3vw,44px)}
+#mainnav{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0;
+  max-width:min(460px,100%);overflow-y:auto}
+.mi{position:relative;display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;
+  column-gap:12px;align-items:center;width:100%;background:none;border:0;cursor:pointer;
+  padding:clamp(7px,1.3vh,12px) clamp(10px,1.6vw,18px);border-radius:12px;
+  font-family:var(--font);text-align:left;transition:.16s;color:var(--dim)}
+.mi::before{content:'';position:absolute;left:0;top:12%;bottom:12%;width:2px;border-radius:2px;
+  background:transparent;transition:.16s}
+.mi-ic{grid-row:1 / span 2;font-style:normal;font-size:clamp(15px,1.9vw,20px);
+  width:clamp(28px,3.4vw,36px);height:clamp(28px,3.4vw,36px);border-radius:9px;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.05);transition:.16s}
+.mi span{display:block;font-size:clamp(17px,2.5vw,27px);font-weight:700;letter-spacing:.3px;
+  color:#cbdcef;transition:.16s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mi em{display:block;font-style:normal;font-size:clamp(9px,1.05vw,11px);letter-spacing:2.4px;
+  text-transform:uppercase;opacity:.5;margin-top:1px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.mi:hover,.mi.sel{background:linear-gradient(90deg,rgba(34,227,255,.15),transparent 76%)}
+.mi:hover::before,.mi.sel::before{background:var(--accent);box-shadow:0 0 12px var(--accent)}
+.mi:hover .mi-ic,.mi.sel .mi-ic{background:rgba(34,227,255,.20)}
+.mi:hover span,.mi.sel span{color:#fff}
+
+.menu-card{flex:0 0 auto;width:min(330px,38vw);background:var(--glass);
+  border:1px solid var(--line);border-radius:14px;padding:16px 18px;backdrop-filter:blur(12px)}
+.menu-card h4{font-size:10px;letter-spacing:3.2px;color:var(--dim);text-transform:uppercase;font-weight:600}
+.menu-card .mc-name{font-size:clamp(18px,2.2vw,25px);font-weight:700;margin-top:2px;
+  letter-spacing:.2px;line-height:1.15}
+.menu-card .mc-sub{font-size:10.5px;letter-spacing:2.4px;color:var(--accent);
+  text-transform:uppercase;margin-bottom:12px}
 .mc-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-.mc-grid div{background:rgba(255,255,255,.045);border-radius:8px;padding:7px 9px}
-.mc-grid u{display:block;text-decoration:none;font-size:9px;letter-spacing:1.8px;color:var(--dim);text-transform:uppercase}
-.mc-grid b{font-size:17px;font-weight:700}
+.mc-grid div{background:rgba(255,255,255,.045);border-radius:8px;padding:7px 9px;min-width:0}
+.mc-grid u{display:block;text-decoration:none;font-size:8.5px;letter-spacing:1.6px;
+  color:var(--dim);text-transform:uppercase}
+.mc-grid b{font-size:clamp(14px,1.6vw,18px);font-weight:700}
+
+.menu-foot{flex:0 0 auto}
+.hint{font-size:clamp(9.5px,1.05vw,11.5px);letter-spacing:1.1px;color:var(--dim);
+  opacity:.85;line-height:1.85;display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline}
+.hint b{color:var(--accent);font-weight:600}
+.hint .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:19px;
+  padding:1px 5px;border-radius:5px;background:rgba(255,255,255,.09);
+  border:1px solid rgba(255,255,255,.14);color:#dceaf8;font-size:.92em;font-weight:600}
+.hint .grp{display:inline-flex;gap:5px;align-items:center;white-space:nowrap}
+
+/* portrait / narrow: stack, shrink, never overflow */
+@media (max-aspect-ratio: 1/1), (max-width: 760px){
+  .menu-body{flex-direction:column;align-items:stretch;justify-content:center;
+    gap:clamp(10px,2vh,18px);overflow-y:auto}
+  #mainnav{max-width:100%;flex:0 0 auto}
+  .menu-card{width:100%}
+  .mc-grid b{font-size:16px}
+}
+@media (max-height: 520px){
+  .brand-mark{font-size:clamp(28px,7vh,44px)!important}
+  .brand-sub{font-size:9px;letter-spacing:6px}
+  .mi{padding:5px 10px}
+  .menu-card{display:none}
+}
 
 /* ---------- panels ---------- */
 .panel{background:var(--glass2);border:1px solid var(--line);border-radius:16px;padding:24px 28px;
@@ -591,9 +668,6 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border:0;border-radiu
 
 @media (max-width:1100px){ .shopbody{grid-template-columns:150px 1fr minmax(250px,300px)} }
 @media (max-width:900px){
-  .brand-mark{font-size:56px}.brand-sub{font-size:12px;letter-spacing:8px}
-  .mi span{font-size:20px}
-  .menu-card{display:none}
   .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr auto}
   .rail{display:flex;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:6px}
   .rail button{width:auto;white-space:nowrap;border-left:0;border-bottom:2px solid transparent}
@@ -3936,7 +4010,7 @@ function buildCar(spec) {
    ============================================================ */
 const CAR_SPECS = [
   {
-    id: 'vypr', price: 168000, name: 'Vypr V10', cls: 'Supercar',
+    id: 'vypr', price: 168000, name: 'Auros Vyra V10', cls: 'Supercar',
     len: 4.52, width: 2.00, bodyW: .87, wheelR: .345, wheelW: .34, spokes: 5, rimStyle: 'split', rhd: 1,
     flareF: .065, flareR: .105, cage: 0, cpillar: 0, quadPipes: 1,
     grilleY: .44, lightY: .68, lampW: .30, tailY: .76, tailBar: 1, deckY: .96,
@@ -3944,6 +4018,7 @@ const CAR_SPECS = [
     wing: { z: .34, y: 1.02, chord: .30, h: .20, gurney: 1 },
     sig: { midEngine: 1, buttress: 1, louvres: 1, yLamps: 1,
            centreExhaust: 1, finTail: 1, canards: 1 },
+    voice: { peaks: [[120, 2.0, 5], [520, 1.5, 7], [2400, 1.6, 6]], drive: 2.4, rasp: 0.85, lope: 0.05, tail: 1.15, idle: 1080 },
     profile: {
       width: [.66, .92, 1.00, 1.00, 1.00, .96, .78],
       sill:  [.26, .14, .11, .11, .11, .15, .28],
@@ -3957,13 +4032,14 @@ const CAR_SPECS = [
     phys: { cylinders: 10, sound: 'v10', mass: 1420, power: 470, redline: 8600, gears: [3.4, 2.20, 1.62, 1.28, 1.02, .84], final: 3.55, drive: 'awd', gripF: 1.62, gripR: 1.72, cgH: .40, drag: .32, dfF: .55, dfR: .95, brake: 2.35, steerMax: .60 }
   },
   {
-    id: 'kestrel', price: 74000, name: 'Kestrel GT', cls: 'Grand Tourer',
+    id: 'kestrel', price: 74000, name: 'Marlowe Sabre GT', cls: 'Grand Tourer',
     len: 4.78, width: 1.94, bodyW: .89, wheelR: .355, wheelW: .30, spokes: 10, rimStyle: 'mesh', rhd: 1,
     flareF: .055, flareR: .085, cage: 0, cpillar: 1, quadPipes: 0,
     grilleY: .50, lightY: .76, lampW: .26, tailY: .84, tailBar: 0, deckY: 1.02,
     axleF: 1.48, axleR: -1.42, trackF: .80, trackR: .82,
     ducktail: { y: .98, z: .30 },
     sig: { chromeTrim: 1, roundTails: 1, fourDoor: 0 },
+    voice: { peaks: [[150, 2.2, 8], [430, 1.5, 4], [1700, 1.3, 1]], drive: 1.9, rasp: 0.35, lope: 0.10, tail: 0.95, idle: 820 },
     profile: {
       width: [.66, .93, 1.00, 1.00, .99, .95, .78],
       sill:  [.28, .16, .13, .13, .13, .17, .30],
@@ -3977,13 +4053,14 @@ const CAR_SPECS = [
     phys: { cylinders: 8, sound: 'v8', mass: 1620, power: 405, redline: 7400, gears: [3.2, 2.05, 1.50, 1.18, .96, .80], final: 3.35, drive: 'rwd', gripF: 1.50, gripR: 1.58, cgH: .44, drag: .34, dfF: .35, dfR: .55, brake: 2.05, steerMax: .58 }
   },
   {
-    id: 'bruiser', price: 38000, name: 'Bruiser 440', cls: 'Muscle',
+    id: 'bruiser', price: 38000, name: 'Corbin Brute 440', cls: 'Muscle',
     len: 4.96, width: 1.98, bodyW: .90, wheelR: .365, wheelW: .34, spokes: 5, rimStyle: 'split', rhd: 1,
     flareF: .06, flareR: .115, cage: 0, cpillar: 1, quadPipes: 1,
     grilleY: .58, lightY: .84, lampW: .24, tailY: .90, tailBar: 1, deckY: 1.08,
     axleF: 1.52, axleR: -1.48, trackF: .82, trackR: .85,
     ducktail: { y: 1.06, z: .28 },
     sig: { quadLamps: 1, hoodScoop: 1, sideExhaust: 1, bonnetPins: 1 },
+    voice: { peaks: [[96, 2.6, 11], [330, 1.5, 6], [1450, 1.1, -1]], drive: 2.2, rasp: 0.45, lope: 0.30, tail: 1.05, idle: 720 },
     profile: {
       width: [.70, .95, 1.00, 1.00, 1.00, .96, .82],
       sill:  [.30, .19, .16, .16, .16, .20, .32],
@@ -3997,12 +4074,13 @@ const CAR_SPECS = [
     phys: { cylinders: 8, sound: 'v8', mass: 1740, power: 455, redline: 6400, gears: [2.95, 1.85, 1.36, 1.06, .86, .74], final: 3.70, drive: 'rwd', gripF: 1.36, gripR: 1.42, cgH: .48, drag: .40, dfF: .18, dfR: .28, brake: 1.80, steerMax: .55 }
   },
   {
-    id: 'nomad', price: 62000, name: 'Nomad XR', cls: 'Crossover',
+    id: 'nomad', price: 62000, name: 'Sable Nomad XR', cls: 'Crossover',
     len: 4.72, width: 1.96, bodyW: .91, wheelR: .45, wheelW: .32, spokes: 7, rimStyle: 'split', rhd: 1,
     flareF: .055, flareR: .075, cage: 0, cpillar: 1, quadPipes: 0,
     grilleY: .84, lightY: 1.06, lampW: .26, tailY: 1.16, tailBar: 0, deckY: 1.50,
     axleF: 1.42, axleR: -1.40, trackF: .80, trackR: .81,
     sig: { roofRails: 1, cladding: 1, skidPlates: 1, spareWheel: 1, fourDoor: 1 },
+    voice: { peaks: [[135, 2.0, 6], [470, 1.4, 3], [1600, 1.2, -3]], drive: 1.5, rasp: 0.20, lope: 0.06, tail: 0.80, idle: 780 },
     profile: {
       width: [.72, .95, 1.00, 1.00, 1.00, .97, .84],
       sill:  [.54, .46, .44, .44, .44, .47, .56],
@@ -4016,13 +4094,14 @@ const CAR_SPECS = [
     phys: { cylinders: 6, sound: 'v6', mass: 1930, power: 360, redline: 6800, gears: [3.6, 2.30, 1.68, 1.30, 1.02, .84], final: 3.60, drive: 'awd', gripF: 1.40, gripR: 1.44, cgH: .60, drag: .44, dfF: .10, dfR: .16, brake: 1.85, steerMax: .56 }
   },
   {
-    id: 'vector', price: 245000, name: 'Vector RS', cls: 'Track Weapon',
+    id: 'vector', price: 245000, name: 'Auros Vektor RS', cls: 'Track Weapon',
     len: 4.62, width: 2.04, bodyW: .86, wheelR: .35, wheelW: .38, spokes: 6, rimStyle: 'mesh', rhd: 1,
     flareF: .075, flareR: .125, cage: 1, cpillar: 0, quadPipes: 1,
     grilleY: .38, lightY: .60, lampW: .26, tailY: .70, tailBar: 1, deckY: .90,
     axleF: 1.46, axleR: -1.40, trackF: .86, trackR: .90,
     wing: { z: .20, y: 1.14, chord: .36, h: .34, gurney: 1 },
     sig: { swanWing: 1, canards: 1, towHook: 1, bonnetPins: 1, roofScoop: 1 },
+    voice: { peaks: [[130, 1.8, 4], [640, 1.6, 8], [2900, 1.7, 8]], drive: 2.8, rasp: 1.00, lope: 0.03, tail: 1.25, idle: 1250 },
     profile: {
       width: [.68, .95, 1.00, 1.00, 1.00, .98, .84],
       sill:  [.22, .10, .08, .08, .08, .12, .24],
@@ -6576,7 +6655,8 @@ const Audio2 = {
     while (zi < ENGINE_ZONES.length - 2 && rpm > ENGINE_ZONES[zi + 1]) zi++;
     const lo = ENGINE_ZONES[zi], hi = ENGINE_ZONES[zi + 1];
     const f = clamp01((rpm - lo) / Math.max(1, hi - lo));
-    const wobble = 1 + (rpm < 1400 ? Math.sin(t * 11.3) * 0.010 * (1 - load) : 0);
+    const lope = (car.ph.voice ? car.ph.voice.lope : 0.08);
+    const wobble = 1 + (rpm < 1700 ? (Math.sin(t * 9.1) * 0.6 + Math.sin(t * 5.3) * 0.4) * lope * 0.09 * (1 - load) : 0);
 
     for (let i = 0; i < this.zones.length; i++) {
       const z = this.zones[i];
@@ -6599,10 +6679,35 @@ const Audio2 = {
       if (limiterCut < 0.5) this.misfire(0.8);
     }
     const exhaust = 1 + (tune.exhaust || 0) * 0.28;
-    N.eng.lp.frequency.setTargetAtTime((1500 + 5200 * rev + 3400 * load) * exhaust, t, 0.035);
-    N.eng.p1.gain.setTargetAtTime(6 + 5 * (1 - rev), t, 0.08);
-    N.eng.p2.gain.setTargetAtTime(3 + 6 * load, t, 0.08);
-    N.eng.p3.gain.setTargetAtTime(-1 + 8 * load + 3 * rev, t, 0.08);
+
+    /* per-car exhaust voice — this is what stops every car sounding the same */
+    const V = car.ph.voice;
+    if (V && this._voiceKey !== car.ph.engineId + '|' + (car.spec && car.spec.id)) {
+      this._voiceKey = car.ph.engineId + '|' + (car.spec && car.spec.id);
+      const blend = car.ph.voiceShift ? 0.45 : 1.0;   // a swapped engine dilutes the car's own voice
+      const peaks = [N.eng.p1, N.eng.p2, N.eng.p3];
+      for (let i = 0; i < 3; i++) {
+        const q = V.peaks[i];
+        peaks[i].frequency.setTargetAtTime(lerp(peaks[i].frequency.value, q[0], blend), t, 0.05);
+        peaks[i].Q.setTargetAtTime(q[1], t, 0.05);
+      }
+      this._voiceGains = V.peaks.map(q => q[2] * blend);
+      this._voiceDrive = lerp(2.1, V.drive, blend);
+      this._voiceRasp = V.rasp * blend;
+      this._voiceTail = V.tail;
+      // reshape the saturation curve for this engine's character
+      const cv = new Float32Array(2048);
+      const d = this._voiceDrive;
+      for (let i = 0; i < 2048; i++) { const x = i / 1023.5 - 1; cv[i] = Math.tanh(x * d) * 0.85; }
+      N.eng.shaper.curve = cv;
+    }
+    const vg = this._voiceGains || [7, 5, 2];
+    const rasp = this._voiceRasp === undefined ? 0.5 : this._voiceRasp;
+    const tail = this._voiceTail === undefined ? 1 : this._voiceTail;
+    N.eng.lp.frequency.setTargetAtTime((1500 + 5200 * rev + 3400 * load) * exhaust * tail, t, 0.035);
+    N.eng.p1.gain.setTargetAtTime(vg[0] * (0.55 + 0.55 * (1 - rev)), t, 0.08);
+    N.eng.p2.gain.setTargetAtTime(vg[1] * (0.45 + 0.75 * load), t, 0.08);
+    N.eng.p3.gain.setTargetAtTime(vg[2] * (0.30 + 0.9 * load + 0.5 * rev) + rasp * 6 * rev, t, 0.08);
     N.eng.p4.gain.setTargetAtTime(-3 + 7 * load * rev, t, 0.08);
     const vol = (0.22 + 0.52 * load + 0.38 * rev) * prox * limiterCut * (0.85 + 0.30 * (tune.exhaust || 0));
     N.eng.out.gain.setTargetAtTime(vol * 0.82, t, 0.030);
@@ -7019,6 +7124,9 @@ function buildPhys(carId) {
   let redline = eng.id === 'stock' ? base.redline : eng.rl;
   ph.cylinders = eng.id === 'stock' ? (base.cylinders || 8) : eng.cyl;
   ph.soundType = eng.id === 'stock' ? (base.sound || 'v8') : eng.sound;
+  // the car keeps its own exhaust voice; a swap shifts it toward the new engine
+  ph.voice = spec.voice || null;
+  ph.voiceShift = eng.id === 'stock' ? 0 : 1;
 
   torque *= P.intake.tq * P.exhaust.tq * P.ecu.tq;
   redline += P.ecu.rl;
@@ -9075,9 +9183,19 @@ const Controls = {
   },
 
   helpHTML() {
-    if (this.device === 'touch') return '<b>Touch</b> · left thumb steers, right thumb is the throttle. E‑BRK swings the back out, NOS is the boost.';
-    if (this.device === 'pad') return '<b>Gamepad</b> · RT throttle · LT brake · left stick steer · A handbrake · B nitrous · RB/LB shift · Y camera';
-    return '<b>Keyboard</b> · W A S D or arrows · Space handbrake · Shift nitrous · E/Q shift · X clutch · C camera · R reset · T gearbox · P photo · Esc pause';
+    const k = t => '<span class="kbd">' + t + '</span>';
+    const g = (keys, what) => '<span class="grp">' + keys + ' ' + what + '</span>';
+    if (this.device === 'touch')
+      return g('◀ ▶', 'steer') + g('GAS', 'throttle') + g('BRAKE', 'brake / reverse') +
+        g('E‑BRK', 'handbrake') + g('NOS', 'boost') + g('+ −', 'gears in manual');
+    if (this.device === 'pad')
+      return g(k('LS'), 'steer') + g(k('RT'), 'throttle') + g(k('LT'), 'brake') +
+        g(k('A'), 'handbrake') + g(k('B'), 'nitrous') + g(k('LB') + k('RB'), 'gears') +
+        g(k('Y'), 'camera') + g(k('Start'), 'pause');
+    return g(k('W') + k('A') + k('S') + k('D'), 'drive') + g(k('Space'), 'handbrake') +
+      g(k('Shift'), 'nitrous') + g(k('Q') + k('E'), 'gears') + g(k('X'), 'clutch') +
+      g(k('C'), 'camera') + g(k('M'), 'map') + g(k('B'), 'radio') +
+      g(k('R'), 'reset') + g(k('T'), 'gearbox') + g(k('P'), 'photo') + g(k('Esc'), 'pause');
   },
 
   bindSettings() {
@@ -9972,8 +10090,6 @@ const Game = {
       this.updateMenuCard();
       Controls.apply();
       if (this.toastQueue) { this.toast(this.toastQueue, 'bad'); this.toastQueue = null; }
-      const h = document.querySelector('#menu .hint');
-      if (h) h.innerHTML = Controls.helpHTML();
     });
   },
 
@@ -10033,6 +10149,9 @@ const Game = {
     const spec = specById(Garage.current);
     const ph = buildPhys(Garage.current);
     const st = statsFor(ph);
+    const cash = $('menucash'); if (cash) cash.textContent = money(Garage.cash);
+    const hint = $('menuhint');
+    if (hint && typeof Controls !== 'undefined') hint.innerHTML = Controls.helpHTML();
     el.innerHTML = '<h4>Current build</h4>' +
       '<div class="mc-name">' + spec.name + '</div>' +
       '<div class="mc-sub">' + spec.cls + ' · ' + ph.drive.toUpperCase() +

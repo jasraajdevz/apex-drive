@@ -187,8 +187,6 @@ const Game = {
       this.updateMenuCard();
       Controls.apply();
       if (this.toastQueue) { this.toast(this.toastQueue, 'bad'); this.toastQueue = null; }
-      const h = document.querySelector('#menu .hint');
-      if (h) h.innerHTML = Controls.helpHTML();
     });
   },
 
@@ -248,6 +246,9 @@ const Game = {
     const spec = specById(Garage.current);
     const ph = buildPhys(Garage.current);
     const st = statsFor(ph);
+    const cash = $('menucash'); if (cash) cash.textContent = money(Garage.cash);
+    const hint = $('menuhint');
+    if (hint && typeof Controls !== 'undefined') hint.innerHTML = Controls.helpHTML();
     el.innerHTML = '<h4>Current build</h4>' +
       '<div class="mc-name">' + spec.name + '</div>' +
       '<div class="mc-sub">' + spec.cls + ' · ' + ph.drive.toUpperCase() +

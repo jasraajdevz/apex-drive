@@ -54,25 +54,42 @@
 
 <!-- ===================== MAIN MENU ===================== -->
 <div id="menu" class="screen hidden">
-  <div class="menu-left">
-    <div class="brand small">
-      <div class="brand-mark" data-txt="APEX">APEX</div>
-      <div class="brand-sub">D&nbsp;R&nbsp;I&nbsp;V&nbsp;E</div>
+  <div class="menu-scrim"></div>
+  <div class="menu-inner">
+
+    <header class="menu-top">
+      <div class="brand">
+        <div class="brand-mark" data-txt="APEX">APEX</div>
+        <div class="brand-sub">D&nbsp;R&nbsp;I&nbsp;V&nbsp;E</div>
+      </div>
+      <div class="menu-wallet">
+        <u>Balance</u><b id="menucash">$0</b>
+      </div>
+    </header>
+
+    <div class="menu-body">
+      <nav id="mainnav">
+        <button class="mi" data-act="free">
+          <i class="mi-ic">🌐</i><span>Free Roam</span><em>own the city</em></button>
+        <button class="mi" data-act="race">
+          <i class="mi-ic">🚩</i><span>Checkpoint Run</span><em>beat the clock</em></button>
+        <button class="mi" data-act="drift">
+          <i class="mi-ic">💨</i><span>Drift Attack</span><em>score on the slide</em></button>
+        <button class="mi" data-act="speed">
+          <i class="mi-ic">⚡</i><span>Speed Trap</span><em>terminal velocity</em></button>
+        <button class="mi" data-act="shop">
+          <i class="mi-ic">🔧</i><span>Garage</span><em>buy · tune · paint · stats</em></button>
+        <button class="mi" data-act="settings">
+          <i class="mi-ic">⚙️</i><span>Settings</span><em>graphics · audio · world</em></button>
+      </nav>
+      <aside class="menu-card" id="menucard"></aside>
     </div>
-    <nav id="mainnav">
-      <button class="mi" data-act="free"><span>Free Roam</span><em>own the city</em></button>
-      <button class="mi" data-act="race"><span>Checkpoint Run</span><em>beat the clock</em></button>
-      <button class="mi" data-act="drift"><span>Drift Attack</span><em>score on the slide</em></button>
-      <button class="mi" data-act="speed"><span>Speed Trap</span><em>terminal velocity</em></button>
-      <button class="mi" data-act="shop"><span>Garage</span><em>buy · tune · paint · stats</em></button>
-      <button class="mi" data-act="settings"><span>Settings</span><em>graphics · audio · world</em></button>
-    </nav>
-    <div class="hint">
-      <b>W A S D</b> drive · <b>Space</b> handbrake · <b>Shift</b> nitrous ·
-      <b>E/Q</b> shift · <b>C</b> camera · <b>R</b> reset · <b>P</b> photo
-    </div>
+
+    <footer class="menu-foot">
+      <div class="hint" id="menuhint"></div>
+    </footer>
+
   </div>
-  <div class="menu-card" id="menucard"></div>
 </div>
 
 <!-- ===================== SHOP / GARAGE ===================== -->

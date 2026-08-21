@@ -207,6 +207,9 @@ function buildPhys(carId) {
   let redline = eng.id === 'stock' ? base.redline : eng.rl;
   ph.cylinders = eng.id === 'stock' ? (base.cylinders || 8) : eng.cyl;
   ph.soundType = eng.id === 'stock' ? (base.sound || 'v8') : eng.sound;
+  // the car keeps its own exhaust voice; a swap shifts it toward the new engine
+  ph.voice = spec.voice || null;
+  ph.voiceShift = eng.id === 'stock' ? 0 : 1;
 
   torque *= P.intake.tq * P.exhaust.tq * P.ecu.tq;
   redline += P.ecu.rl;
