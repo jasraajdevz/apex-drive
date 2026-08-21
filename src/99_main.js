@@ -1156,6 +1156,9 @@ const Game = {
     // this read settings.auto, which does not exist — the setting is autoq — so
     // adaptive quality silently never ran and the game could not climb out of a
     // bad frame rate on its own
+    // a hidden tab runs on the watchdog at ~4fps; letting that count would
+    // downgrade quality behind the player's back and the floor would keep it there
+    if (document.hidden) { this._fpsHist = []; return; }
     if (!this.settings.autoq || this.state !== 'play' || this.countdown > 0) return;
     const now = this.time;
     if (now < (this._qCooldown || 0)) { this._fpsHist = []; return; }
@@ -1235,7 +1238,10 @@ Game.boot().then(() => {
   // tab or a throttled preview. At 45ms it fired constantly on any machine below
   // 22fps and drove a second, un-vsynced render loop on top of rAF.
   setInterval(() => { if (_running && performance.now() - _lastFrameAt > 400) step(); }, 250);
-  document.addEventListener('visibilitychange', () => { _last = performance.now(); });
+  document.addEventListener('visibilitychange', () => {
+    _last = performance.now(); _accWall = 0; _fpsN = 0;
+    if (Game.state === 'play') Game._fpsHist = [];
+  });
 }).catch(e => {
   const l = $('load');
   if (l) {
