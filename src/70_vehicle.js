@@ -123,10 +123,21 @@ class Vehicle {
     return out;
   }
 
+  /* In reverse the pedals swap: the brake pedal drives backwards and the
+     accelerator becomes the brake. Without this, holding the brake in
+     reverse fed the engine zero throttle and the car simply sat there. */
+  mapPedals(input) {
+    if (this.gear !== 0) return input;
+    return { steer: input.steer, throttle: input.brake, brake: input.throttle };
+  }
+
   update(dt, input, world) {
+    this.rawInput = input;
+    const inp = this.mapPedals(input);
+    this.pedal = inp;
     const steps = clamp(Math.ceil(dt / (1 / 180)), 1, 8);
     const h = dt / steps;
-    for (let i = 0; i < steps; i++) this.step(h, input, world);
+    for (let i = 0; i < steps; i++) this.step(h, inp, world);
     this.postUpdate(dt);
   }
 
@@ -173,7 +184,7 @@ class Vehicle {
     for (const w of drivenWheels) avgOmega += w.omega;
     avgOmega /= Math.max(drivenWheels.length, 1);
 
-    const gearRatio = this.gear === 0 ? -3.2 : ph.gears[Math.min(this.gear - 1, ph.gears.length - 1)];
+    const gearRatio = this.gear === 0 ? -(ph.gears[0] * 1.28) : ph.gears[Math.min(this.gear - 1, ph.gears.length - 1)];
     const totalRatio = gearRatio * ph.final;
 
     this.shiftT = Math.max(0, this.shiftT - dt);
@@ -194,6 +205,8 @@ class Vehicle {
 
     let throttle = inp.throttle;
     if (shifting) throttle *= this.manual ? 0.25 : 0.10;
+    // reverse is governed, no car does 70 km/h backwards
+    if (this.gear === 0) throttle *= 1 - smoothstep(8.5, 11.0, -this.fwdSpeed);
 
     let limiter = 1;
     if (this.rpm >= ph.redline) { limiter = 0.02; this.rpm -= 1400 * dt; }
@@ -498,23 +511,33 @@ class Vehicle {
     return 1;
   }
 
-  /* automatic gearbox */
-  autoGearbox(dt, inp) {
+  /* automatic gearbox — fed the raw pedals, never the reverse-swapped ones */
+  autoGearbox(dt, raw) {
     const ph = this.ph;
     if (this.manual) return;
     if (this.shiftT > 0) return;
     const kmh = this.fwdSpeed * 3.6;
-    if (inp.throttle < 0.05 && inp.brake > 0.4 && kmh < 2.5 && this.fwdSpeed < 0.8) {
-      if (this.gear !== 0) { this.gear = 0; this.shiftT = ph.shiftTime; }
-      return;
-    }
+
     if (this.gear === 0) {
-      if (inp.throttle > 0.1 && this.fwdSpeed > -0.4) { this.gear = 1; this.shiftT = ph.shiftTime; }
+      // pressing the accelerator while stopped or still rolling back picks 1st
+      if (raw.throttle > 0.15 && this.fwdSpeed > -0.8) {
+        this.fwdHold = (this.fwdHold || 0) + dt;
+        if (this.fwdHold > 0.16) { this.gear = 1; this.shiftT = ph.shiftTime; this.fwdHold = 0; }
+      } else this.fwdHold = 0;
       return;
     }
+
+    // holding the brake at a standstill drops it into reverse
+    if (raw.brake > 0.45 && raw.throttle < 0.06 && Math.abs(this.fwdSpeed) < 0.9 && this.gear <= 1) {
+      this.revHold = (this.revHold || 0) + dt;
+      if (this.revHold > 0.28) { this.gear = 0; this.shiftT = ph.shiftTime; this.revHold = 0; }
+      return;
+    }
+    this.revHold = 0;
+
     this.shiftLock = Math.max(0, (this.shiftLock || 0) - dt);
     if (this.shiftLock > 0) return;
-    const upAt = ph.redline * (inp.throttle > 0.7 ? 0.955 : 0.72);
+    const upAt = ph.redline * (raw.throttle > 0.7 ? 0.955 : 0.72);
     const downAt = ph.redline * 0.44;
     if (this.rpm > upAt && this.gear < ph.gears.length && kmh > 14 * this.gear) {
       this.gear++; this.shiftT = ph.shiftTime; this.shiftLock = 0.45; this.shiftFlash = 1;
@@ -522,4 +545,5 @@ class Vehicle {
       this.gear--; this.shiftT = ph.shiftTime * 0.9; this.shiftLock = 0.35; this.shiftFlash = 1;
     }
   }
+
 }

@@ -157,6 +157,8 @@ const Game = {
       skid: new SkidTrails(1500), ca: .9
     };
     this.scene.skid.initGL();
+    Nav.initGL();
+    this.scene.nav = Nav;
     this.gateMesh = buildMesh(geoArch(13, 8.5, .7).done());
     this.gateBatch = new Batch(this.gateMesh, 64, true);
     this.signalBatch = new Batch(R.meshes.sph, 320, true);
@@ -281,6 +283,7 @@ const Game = {
       else { $('menu').classList.remove('hidden'); this.state = 'menu'; this.updateMenuCard(); }
       this.prevState = null;
     });
+    $('menubtn').onclick = () => { Audio2.ui('tick'); if (MapView.open) MapView.close(); this.setPaused(!this.paused); };
     $('resume').onclick = () => this.setPaused(false);
     $('p-menu').onclick = () => { this.setPaused(false); this.toMenu(); };
     $('p-settings').onclick = () => { this.prevState = 'pause'; $('pause').classList.add('hidden'); $('settings').classList.remove('hidden'); this.state = 'settings'; };
@@ -619,9 +622,10 @@ const Game = {
     } else {
       p.handbrake = 1; p.boostActive = 0; p.nosActive = 0;
     }
-    p.throttle = inp.throttle; p.brake = inp.brake;
-    p.throttleSm = damp(p.throttleSm || 0, inp.throttle, 9, dt);
     p.autoGearbox(dt, inp);
+    const drive = p.mapPedals(inp);
+    p.throttle = drive.throttle; p.brake = drive.brake;
+    p.throttleSm = damp(p.throttleSm || 0, drive.throttle, 9, dt);
     const prevGear = p.gear;
     p.update(dt, inp, World);
     if (p.gear !== prevGear && playing && !S.manual) Audio2.shift(p.gear > prevGear);
@@ -644,6 +648,8 @@ const Game = {
     this.updateCamera(dt, playing);
     this.updateMode(dt, playing);
 
+    this._navT = (this._navT || 0) + dt;
+    if (this._navT > 0.25) { this._navT = 0; Nav._lastKey = ''; Nav.update(p, MapView.waypoint); }
     const wp = MapView.guidance();
     const wl = $('wayline');
     if (wp) {
@@ -668,9 +674,10 @@ const Game = {
       this._saveT = (this._saveT || 0) + dt;
       if (this._saveT > 12) { this._saveT = 0; Garage.car().damage = p.damage; Garage.save(); }
     }
+    R.wear = clamp01(0.22 + (p.damage || 0) * 0.85 + clamp01(p.odo / 90000) * 0.25);
     R.speedBlur = S.mblur ? clamp01((kmh - 95) / 210) * .95 * (p.nosActive ? 1.6 : 1) : 0;
     R.cam.fov = damp(R.cam.fov, S.fov + clamp01((kmh - 40) / 260) * 15 + (p.nosActive ? 6 : 0), 4, dt);
-    this.scene.ca = .8 + clamp01((kmh - 120) / 200) * 2.4;
+    this.scene.ca = clamp01((kmh - 150) / 190) * 1.5;
   },
 
   updateMode(dt, playing) {
@@ -919,6 +926,55 @@ const Game = {
         vx: (Math.random() - .5) * 6 - p.vel[0] * .2, vy: Math.random() * 3, vz: (Math.random() - .5) * 6 - p.vel[2] * .2,
         s0: .07, s1: .02, life: .28, r: 3.0, g: 1.5, b: .4, a: 1, kind: P_STREAK, stretch: .2, drag: 1, grav: -14, add: 1
       });
+    }
+
+    /* exhaust flames — upshifts on boost, overrun and the rev limiter */
+    {
+      const rev = clamp01(p.rpm / p.ph.redline);
+      const lift = (this._lastThr || 0) > 0.45 && p.throttleSm < 0.16;
+      const shiftPop = p.shiftFlash > 0.72 && rev > 0.55;
+      const limiter = p.onLimiter && p.throttleSm > 0.5;
+      const bias = (p.forced !== 'none' ? 1.0 : 0.45)
+        + ((p.ph.parts && p.ph.parts.exhaust ? p.ph.parts.exhaust.snd : 0) || 0) * 0.30;
+      let want = 0;
+      if (limiter) want = 0.55 * bias;
+      else if (shiftPop) want = 0.95 * bias;
+      else if (lift && rev > 0.34) want = (0.35 + rev * 0.6) * bias;
+      if (want > 0.05 && Math.random() < want * 34 * dt) {
+        const pipes = p.spec.quadPipes ? [-1.75, -1.05, 1.05, 1.75] : [-1, 1];
+        const sx = pipes[(Math.random() * pipes.length) | 0];
+        const o = [0, 0, 0];
+        p.toWorld(o, [sx * p.spec.width * .155,
+        pf(p.spec.profile.sill, .05) + .14 - CAR_SAG,
+          -p.spec.len * .5 + .04]);
+        const back = [0, 0, 0]; p.dirWorld(back, [0, 0, -1]);
+        const n = 2 + ((want * 4) | 0);
+        for (let i = 0; i < n; i++) {
+          const sp = 6 + Math.random() * 16 * want;
+          P.emit({
+            x: o[0], y: o[1], z: o[2],
+            vx: p.vel[0] * .55 + back[0] * sp + (Math.random() - .5) * 2.2,
+            vy: p.vel[1] * .4 + 0.5 + Math.random() * 1.6,
+            vz: p.vel[2] * .55 + back[2] * sp + (Math.random() - .5) * 2.2,
+            s0: .13 + Math.random() * .12, s1: .02,
+            life: .075 + Math.random() * .13,
+            r: 6.5, g: 2.0 + Math.random() * 1.2, b: .35,
+            a: 1, kind: P_GLOW, drag: 5.5, grav: 3.0, add: 1
+          });
+        }
+        // a little soot behind the flame
+        P.emit({
+          x: o[0], y: o[1], z: o[2],
+          vx: back[0] * 3 + p.vel[0] * .5, vy: 1.1, vz: back[2] * 3 + p.vel[2] * .5,
+          s0: .16, s1: 1.1, life: .5, r: .10, g: .095, b: .09, a: .30,
+          kind: P_SMOKE, drag: 2.6, grav: 1.1
+        });
+        this.scene.sprites.add(o[0], o[1], o[2], .55 + want * .5, 5.0, 1.7, .35, .85 * want, P_GLOW);
+        this.scene.dynLights.push({ p: o, c: [1, .45, .12], r: 11, i: 55 * want, prio: 0 });
+        R.flash = Math.max(R.flash, 0.018 * want);
+        if (shiftPop || limiter) Audio2.misfire(0.55 + want * 0.5);
+      }
+      this._lastThr = p.throttleSm;
     }
 
     /* exhaust */

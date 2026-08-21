@@ -262,6 +262,20 @@ const MapView = {
       }
     }
 
+    // satnav route
+    if (Nav.path && Nav.path.length > 1) {
+      c.strokeStyle = 'rgba(34,227,255,.75)';
+      c.lineWidth = Math.max(2, 3 * this.dpr);
+      c.lineJoin = 'round'; c.lineCap = 'round';
+      c.shadowColor = '#22e3ff'; c.shadowBlur = 8 * this.dpr;
+      c.beginPath();
+      Nav.path.forEach((pt, i) => {
+        const q = this.worldToScreen(pt[0], pt[1]);
+        i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]);
+      });
+      c.stroke(); c.shadowBlur = 0;
+    }
+
     // waypoint
     if (this.waypoint) this.pin(c, this.worldToScreen(this.waypoint.x, this.waypoint.z), '#ffcf6b');
 

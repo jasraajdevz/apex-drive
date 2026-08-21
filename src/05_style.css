@@ -431,3 +431,14 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
 .srow .sbar s{display:block;height:100%;text-decoration:none;
   background:linear-gradient(90deg,var(--accent),#2a86ff)}
 @media (max-width:900px){ .srow u{flex-basis:96px} .srow b{min-width:96px;font-size:13px} }
+
+/* ---------- on-screen menu button ---------- */
+#menubtn{position:absolute;top:20px;left:50%;transform:translateX(-50%) translateY(-58px);
+  width:44px;height:38px;border-radius:11px;background:rgba(9,14,22,.72);
+  border:1px solid var(--line);color:var(--ink);cursor:pointer;pointer-events:auto;
+  display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px);transition:.15s;
+  z-index:4}
+#menubtn:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 0 16px rgba(34,227,255,.24)}
+@media (max-width:900px){
+  #menubtn{top:12px;left:12px;transform:none;width:42px;height:38px}
+}

@@ -73,6 +73,7 @@ const R = {
     this.progs.fxaa = makeProgram('fxaa', SH.fsVS, SH.fxaaFS, {});
     this.progs.part = makeProgram('part', SH.partVS, SH.partFS, {});
     this.progs.skid = makeProgram('skid', SH.skidVS, SH.skidFS, {});
+    this.progs.gps = makeProgram('gps', SH.gpsVS, SH.gpsFS, {});
     this.progs.glass = makeProgram('glass', SH.glassVS, SH.glassFS, {});
     this.progs.ssr = makeProgram('ssr', SH.fsVS, SH.ssrFS, {});
     this.progs.blit = makeProgram('blit', SH.fsVS, SH.blitFS, {});
@@ -473,6 +474,7 @@ const R = {
       .f('uAmbStrength', this.sky.ambStrength)
       .f('uFogDensity', this.sky.fogDensity).f('uFogHeight', this.sky.fogHeight)
       .f('uWindowLit', this.sky.windowLit)
+      .f('uWear', this.wear === undefined ? 0.35 : this.wear)
       .v3('uCsmSplit', this.csmSplit[0], this.csmSplit[1], this.csmSplit[2])
       .i('uLCount', this.lights.n)
       .v4v('uLPos', this.lights.pos).v4v('uLCol', this.lights.col).v4v('uLDir', this.lights.dir);
@@ -524,6 +526,18 @@ const R = {
       kp.m4('uVP', this.vp).v3('uTint', 0.020, 0.020, 0.024).f('uWetLocal', this.wet);
       this.setSkyUniforms(kp);
       scene.skid.draw();
+      gl.disable(gl.BLEND);
+    }
+
+    /* ---- 6b. satnav ribbon ---- */
+    if (scene.nav && scene.nav.count > 2) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
+      const np = this.progs.gps.use();
+      np.m4('uVP', this.vp).v3('uCol', 0.22, 1.35, 1.9)
+        .f('uTime', this.time).f('uFadeStart', 0);
+      scene.nav.draw();
       gl.disable(gl.BLEND);
     }
 
@@ -605,9 +619,9 @@ const R = {
       .f('uShaftAmt', this._shaftAmt || 0)
       .v2('uRes', this.W, this.H)
       .f('uExposure', this.exposure).f('uBloomAmt', bl.length ? 0.055 : 0)
-      .f('uVignette', 0.34).f('uGrain', 0.024).f('uCA', scene.ca === undefined ? 0.9 : scene.ca)
+      .f('uVignette', 0.30).f('uGrain', 0.012).f('uCA', scene.ca === undefined ? 0.9 : scene.ca)
       .f('uTime', this.time).f('uSpeedBlur', this.speedBlur)
-      .f('uSat', 1.10).f('uContrast', 1.085).f('uNightGrade', this.sky.night)
+      .f('uSat', 1.13).f('uContrast', 1.11).f('uNightGrade', this.sky.night)
       .v3('uLift', -0.006, -0.004, 0.004).v3('uGain', 1.0, 0.995, 1.005)
       .f('uFlash', this.flash);
     drawFullscreen();

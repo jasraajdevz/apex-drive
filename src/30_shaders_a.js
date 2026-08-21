@@ -293,6 +293,16 @@ float shadowFactor(vec3 wp, vec3 N, float NoL, float vdep){
   return mix(1.0, s, uShadowStrength);
 }
 
+uniform float uWear;   // 0 = showroom, 1 = well used
+
+/* planar uv for body panels, picked from the dominant normal axis */
+vec2 faceUV(vec3 lp, vec3 n){
+  vec3 a = abs(n);
+  if(a.x > a.y && a.x > a.z) return lp.zy;
+  if(a.y > a.z) return lp.xz;
+  return lp.xy;
+}
+
 /* ---------------- procedural materials ---------------- */
 struct Surf { vec3 alb; float rough; float metal; vec3 emis; vec3 nrm; float ao; };
 
@@ -496,9 +506,34 @@ void main(){
   float seed = vPar.w;
 
   if(matId < 0.5){
-    // 0 : car paint / plain painted surface
-    float ff = pow(1.0-sat(dot(N,V)),5.0);
+    // 0 : car paint — clearcoat with swirl marks, scratches, metallic flake and grime
     s.rough = max(s.rough, 0.02);
+    vec2 pu = faceUV(vLP, normalize(vN));
+
+    // fine circular polishing swirls in the lacquer
+    float swirl = fbm(pu*90.0)*0.5 + fbm(pu*220.0)*0.5;
+    s.rough += (swirl-0.5)*0.055*uWear;
+
+    // stone chips and door-edge scratches, worst along the leading edges
+    float scr = smoothstep(0.62, 0.98, fbm(vec2(pu.x*150.0, pu.y*11.0)));
+    float chip = smoothstep(0.80, 1.0, hash12(floor(pu*180.0)));
+    float wear = sat(scr*0.8 + chip*0.6)*uWear;
+    s.alb = mix(s.alb, s.alb*0.55 + vec3(0.055), wear*0.75);
+    s.rough = mix(s.rough, 0.62, wear*0.8);
+    s.metal = mix(s.metal, 0.0, wear*0.7);
+
+    // metallic flake sparkle, only where the paint says it is metallic
+    if(vPar.x > 0.15){
+      float flake = step(0.982, hash12(floor(pu*900.0)));
+      s.rough = max(0.015, s.rough - flake*0.05*vPar.x);
+      s.alb += flake*vPar.x*0.35;
+    }
+
+    // road grime settles low on the body and in the panel gaps
+    float low = sat(1.0 - (vLP.y+0.35)*1.5);
+    float grime = sat(fbm(pu*16.0)*low*1.5)*uWear;
+    s.alb = mix(s.alb, s.alb*vec3(0.42,0.40,0.37), grime*0.55);
+    s.rough = mix(s.rough, 0.78, grime*0.6);
   } else if(matId < 1.5){
     matFacade(s, vLP, normalize(vN), vScale, seed);
   } else if(matId < 2.5){

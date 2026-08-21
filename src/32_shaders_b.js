@@ -604,6 +604,34 @@ void main(){
 }
 `;
 
+/* ---------------- satnav ribbon painted on the road ---------------- */
+SH.gpsVS = `
+layout(location=0) in vec3 aPOS;
+layout(location=2) in vec2 aUV;    // x across the ribbon, y = metres along it
+uniform mat4 uVP;
+out vec2 vUV;
+void main(){ vUV = aUV; gl_Position = uVP*vec4(aPOS,1.0); }
+`;
+SH.gpsFS = `
+${SH.common}
+in vec2 vUV;
+uniform vec3 uCol;
+uniform float uTime, uFadeStart;
+out vec4 oCol;
+void main(){
+  float edge = sat(1.0 - abs(vUV.x*2.0-1.0)*1.15);
+  edge = pow(edge, 0.7);
+  // chevrons sliding toward the destination
+  float march = fract(vUV.y*0.22 - uTime*0.55);
+  float chev = smoothstep(0.55, 0.98, march)*0.85 + 0.35;
+  // fade the very start so it does not stab out of the bonnet
+  float head = smoothstep(0.0, 7.0, vUV.y - uFadeStart);
+  float a = edge*chev*head*0.75;
+  if(a <= 0.004) discard;
+  oCol = vec4(uCol*a, a);
+}
+`;
+
 /* ---------------- forward transparent (glass) ---------------- */
 SH.glassVS = SH.mainVS;
 SH.glassFS = `

@@ -172,6 +172,13 @@
     <div class="cashline"><u>$</u><b id="hudcash">0</b></div>
   </div>
 
+  <button id="menubtn" title="Menu (Esc)">
+    <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+      <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </button>
+
   <div id="shiftlights"></div>
 
   <canvas id="minimap" width="280" height="280"></canvas>
@@ -739,6 +746,17 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
 .srow .sbar s{display:block;height:100%;text-decoration:none;
   background:linear-gradient(90deg,var(--accent),#2a86ff)}
 @media (max-width:900px){ .srow u{flex-basis:96px} .srow b{min-width:96px;font-size:13px} }
+
+/* ---------- on-screen menu button ---------- */
+#menubtn{position:absolute;top:20px;left:50%;transform:translateX(-50%) translateY(-58px);
+  width:44px;height:38px;border-radius:11px;background:rgba(9,14,22,.72);
+  border:1px solid var(--line);color:var(--ink);cursor:pointer;pointer-events:auto;
+  display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px);transition:.15s;
+  z-index:4}
+#menubtn:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 0 16px rgba(34,227,255,.24)}
+@media (max-width:900px){
+  #menubtn{top:12px;left:12px;transform:none;width:42px;height:38px}
+}
 
 </style>
 <script>
@@ -1679,6 +1697,16 @@ float shadowFactor(vec3 wp, vec3 N, float NoL, float vdep){
   return mix(1.0, s, uShadowStrength);
 }
 
+uniform float uWear;   // 0 = showroom, 1 = well used
+
+/* planar uv for body panels, picked from the dominant normal axis */
+vec2 faceUV(vec3 lp, vec3 n){
+  vec3 a = abs(n);
+  if(a.x > a.y && a.x > a.z) return lp.zy;
+  if(a.y > a.z) return lp.xz;
+  return lp.xy;
+}
+
 /* ---------------- procedural materials ---------------- */
 struct Surf { vec3 alb; float rough; float metal; vec3 emis; vec3 nrm; float ao; };
 
@@ -1882,9 +1910,34 @@ void main(){
   float seed = vPar.w;
 
   if(matId < 0.5){
-    // 0 : car paint / plain painted surface
-    float ff = pow(1.0-sat(dot(N,V)),5.0);
+    // 0 : car paint — clearcoat with swirl marks, scratches, metallic flake and grime
     s.rough = max(s.rough, 0.02);
+    vec2 pu = faceUV(vLP, normalize(vN));
+
+    // fine circular polishing swirls in the lacquer
+    float swirl = fbm(pu*90.0)*0.5 + fbm(pu*220.0)*0.5;
+    s.rough += (swirl-0.5)*0.055*uWear;
+
+    // stone chips and door-edge scratches, worst along the leading edges
+    float scr = smoothstep(0.62, 0.98, fbm(vec2(pu.x*150.0, pu.y*11.0)));
+    float chip = smoothstep(0.80, 1.0, hash12(floor(pu*180.0)));
+    float wear = sat(scr*0.8 + chip*0.6)*uWear;
+    s.alb = mix(s.alb, s.alb*0.55 + vec3(0.055), wear*0.75);
+    s.rough = mix(s.rough, 0.62, wear*0.8);
+    s.metal = mix(s.metal, 0.0, wear*0.7);
+
+    // metallic flake sparkle, only where the paint says it is metallic
+    if(vPar.x > 0.15){
+      float flake = step(0.982, hash12(floor(pu*900.0)));
+      s.rough = max(0.015, s.rough - flake*0.05*vPar.x);
+      s.alb += flake*vPar.x*0.35;
+    }
+
+    // road grime settles low on the body and in the panel gaps
+    float low = sat(1.0 - (vLP.y+0.35)*1.5);
+    float grime = sat(fbm(pu*16.0)*low*1.5)*uWear;
+    s.alb = mix(s.alb, s.alb*vec3(0.42,0.40,0.37), grime*0.55);
+    s.rough = mix(s.rough, 0.78, grime*0.6);
   } else if(matId < 1.5){
     matFacade(s, vLP, normalize(vN), vScale, seed);
   } else if(matId < 2.5){
@@ -2602,6 +2655,34 @@ void main(){
   float a = vUV.y*edge*n;
   if(a<=0.004) discard;
   oCol = vec4(uTint, a);
+}
+`;
+
+/* ---------------- satnav ribbon painted on the road ---------------- */
+SH.gpsVS = `
+layout(location=0) in vec3 aPOS;
+layout(location=2) in vec2 aUV;    // x across the ribbon, y = metres along it
+uniform mat4 uVP;
+out vec2 vUV;
+void main(){ vUV = aUV; gl_Position = uVP*vec4(aPOS,1.0); }
+`;
+SH.gpsFS = `
+${SH.common}
+in vec2 vUV;
+uniform vec3 uCol;
+uniform float uTime, uFadeStart;
+out vec4 oCol;
+void main(){
+  float edge = sat(1.0 - abs(vUV.x*2.0-1.0)*1.15);
+  edge = pow(edge, 0.7);
+  // chevrons sliding toward the destination
+  float march = fract(vUV.y*0.22 - uTime*0.55);
+  float chev = smoothstep(0.55, 0.98, march)*0.85 + 0.35;
+  // fade the very start so it does not stab out of the bonnet
+  float head = smoothstep(0.0, 7.0, vUV.y - uFadeStart);
+  float a = edge*chev*head*0.75;
+  if(a <= 0.004) discard;
+  oCol = vec4(uCol*a, a);
 }
 `;
 
@@ -4773,10 +4854,21 @@ class Vehicle {
     return out;
   }
 
+  /* In reverse the pedals swap: the brake pedal drives backwards and the
+     accelerator becomes the brake. Without this, holding the brake in
+     reverse fed the engine zero throttle and the car simply sat there. */
+  mapPedals(input) {
+    if (this.gear !== 0) return input;
+    return { steer: input.steer, throttle: input.brake, brake: input.throttle };
+  }
+
   update(dt, input, world) {
+    this.rawInput = input;
+    const inp = this.mapPedals(input);
+    this.pedal = inp;
     const steps = clamp(Math.ceil(dt / (1 / 180)), 1, 8);
     const h = dt / steps;
-    for (let i = 0; i < steps; i++) this.step(h, input, world);
+    for (let i = 0; i < steps; i++) this.step(h, inp, world);
     this.postUpdate(dt);
   }
 
@@ -4823,7 +4915,7 @@ class Vehicle {
     for (const w of drivenWheels) avgOmega += w.omega;
     avgOmega /= Math.max(drivenWheels.length, 1);
 
-    const gearRatio = this.gear === 0 ? -3.2 : ph.gears[Math.min(this.gear - 1, ph.gears.length - 1)];
+    const gearRatio = this.gear === 0 ? -(ph.gears[0] * 1.28) : ph.gears[Math.min(this.gear - 1, ph.gears.length - 1)];
     const totalRatio = gearRatio * ph.final;
 
     this.shiftT = Math.max(0, this.shiftT - dt);
@@ -4844,6 +4936,8 @@ class Vehicle {
 
     let throttle = inp.throttle;
     if (shifting) throttle *= this.manual ? 0.25 : 0.10;
+    // reverse is governed, no car does 70 km/h backwards
+    if (this.gear === 0) throttle *= 1 - smoothstep(8.5, 11.0, -this.fwdSpeed);
 
     let limiter = 1;
     if (this.rpm >= ph.redline) { limiter = 0.02; this.rpm -= 1400 * dt; }
@@ -5148,23 +5242,33 @@ class Vehicle {
     return 1;
   }
 
-  /* automatic gearbox */
-  autoGearbox(dt, inp) {
+  /* automatic gearbox — fed the raw pedals, never the reverse-swapped ones */
+  autoGearbox(dt, raw) {
     const ph = this.ph;
     if (this.manual) return;
     if (this.shiftT > 0) return;
     const kmh = this.fwdSpeed * 3.6;
-    if (inp.throttle < 0.05 && inp.brake > 0.4 && kmh < 2.5 && this.fwdSpeed < 0.8) {
-      if (this.gear !== 0) { this.gear = 0; this.shiftT = ph.shiftTime; }
-      return;
-    }
+
     if (this.gear === 0) {
-      if (inp.throttle > 0.1 && this.fwdSpeed > -0.4) { this.gear = 1; this.shiftT = ph.shiftTime; }
+      // pressing the accelerator while stopped or still rolling back picks 1st
+      if (raw.throttle > 0.15 && this.fwdSpeed > -0.8) {
+        this.fwdHold = (this.fwdHold || 0) + dt;
+        if (this.fwdHold > 0.16) { this.gear = 1; this.shiftT = ph.shiftTime; this.fwdHold = 0; }
+      } else this.fwdHold = 0;
       return;
     }
+
+    // holding the brake at a standstill drops it into reverse
+    if (raw.brake > 0.45 && raw.throttle < 0.06 && Math.abs(this.fwdSpeed) < 0.9 && this.gear <= 1) {
+      this.revHold = (this.revHold || 0) + dt;
+      if (this.revHold > 0.28) { this.gear = 0; this.shiftT = ph.shiftTime; this.revHold = 0; }
+      return;
+    }
+    this.revHold = 0;
+
     this.shiftLock = Math.max(0, (this.shiftLock || 0) - dt);
     if (this.shiftLock > 0) return;
-    const upAt = ph.redline * (inp.throttle > 0.7 ? 0.955 : 0.72);
+    const upAt = ph.redline * (raw.throttle > 0.7 ? 0.955 : 0.72);
     const downAt = ph.redline * 0.44;
     if (this.rpm > upAt && this.gear < ph.gears.length && kmh > 14 * this.gear) {
       this.gear++; this.shiftT = ph.shiftTime; this.shiftLock = 0.45; this.shiftFlash = 1;
@@ -5172,6 +5276,7 @@ class Vehicle {
       this.gear--; this.shiftT = ph.shiftTime * 0.9; this.shiftLock = 0.35; this.shiftFlash = 1;
     }
   }
+
 }
 
 </script>
@@ -5743,10 +5848,10 @@ const Audio2 = {
     const rpmK = Math.min(1, 2600 / baseRpm);
     const thumpF = fp.thump * (1 + (1 - rpmK) * 0.35);
     const resF = fp.res * (1 + (1 - rpmK) * 0.25);
-    const crackAmt = fp.crack * lerp(0.55, 1.0, load);
+    const crackAmt = fp.crack * lerp(0.85, 1.75, load);
     const tauThump = cycleSec * lerp(0.42, 0.26, load) / Math.max(1, cyl / 6);
     const tauRes = cycleSec * 0.30 / Math.max(1, cyl / 6);
-    const tauCrack = 0.0016 + 0.0042 * (1 - load);
+    const tauCrack = 0.0011 + 0.0028 * (1 - load);
 
     const add = (idx, v) => { d[((idx % n) + n) % n] += v; };
 
@@ -5766,13 +5871,15 @@ const Audio2 = {
         v += Math.sin(TAU * thumpF * 2.02 * t + phase * 1.3) * eT * 0.42 * load;
         v += Math.sin(TAU * resF * t + phase * 0.7) * eR * 0.55;
         v += Math.sin(TAU * resF * 1.51 * t) * eR * 0.22 * load;
-        v += (Math.random() * 2 - 1) * eC * crackAmt * 1.35;
+        v += (Math.random() * 2 - 1) * eC * crackAmt * 1.55;
+        // hard edge on the exhaust pulse — this is most of the 'bite'
+        v += Math.sin(TAU * resF * 3.1 * t) * Math.exp(-t / (tauCrack * 3.2)) * 0.34 * load;
         if (forced === 'turbo') v += (Math.random() * 2 - 1) * Math.exp(-t / 0.010) * 0.20 * load;
         add(start + i, v * gain);
       }
     }
     // one-pole smoothing to knock the hardest edges off
-    let p = 0; const a = load > 0.5 ? 0.62 : 0.46;
+    let p = 0; const a = load > 0.5 ? 0.82 : 0.64;
     for (let i = 0; i < n; i++) { p = p + (d[i] - p) * a; d[i] = p; }
     // wrap the filter once more so the loop point is continuous
     for (let i = 0; i < 64; i++) { p = p + (d[i] - p) * a; d[i] = p; }
@@ -5795,8 +5902,9 @@ const Audio2 = {
     };
     const p1 = mkPeak(140, 2.2, 7);
     const p2 = mkPeak(430, 1.6, 5);
-    const p3 = mkPeak(1650, 1.1, -4);
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800; lp.Q.value = 0.7;
+    const p3 = mkPeak(1900, 1.5, 2);
+    const p4 = mkPeak(3400, 1.2, 0);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; lp.Q.value = 1.05;
     const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 42;
 
     const shaper = ctx.createWaveShaper();
@@ -5805,24 +5913,29 @@ const Audio2 = {
     shaper.curve = cv; shaper.oversample = '2x';
 
     const out = ctx.createGain(); out.gain.value = 0.0;
-    sum.connect(p1); p1.connect(p2); p2.connect(p3); p3.connect(shaper);
+    sum.connect(p1); p1.connect(p2); p2.connect(p3); p3.connect(p4); p4.connect(shaper);
     shaper.connect(lp); lp.connect(hp); hp.connect(out);
     out.connect(this.master); out.connect(this.nodes.revSend);
 
-    this.nodes.eng = { sum, lp, hp, out, p1, p2, p3, shaper };
+    this.nodes.eng = { sum, lp, hp, out, p1, p2, p3, p4, shaper };
 
     /* turbo */
-    const tOsc = ctx.createOscillator(); tOsc.type = 'triangle'; tOsc.frequency.value = 3600;
+    // the whine is the blade-pass tone plus a beating second impeller order
+    const tOsc = ctx.createOscillator(); tOsc.type = 'sawtooth'; tOsc.frequency.value = 3600;
     const tOsc2 = ctx.createOscillator(); tOsc2.type = 'sine'; tOsc2.frequency.value = 5400;
+    const tOsc3 = ctx.createOscillator(); tOsc3.type = 'sine'; tOsc3.frequency.value = 7800;
     const tG = ctx.createGain(); tG.gain.value = 0;
-    const tBp = ctx.createBiquadFilter(); tBp.type = 'bandpass'; tBp.frequency.value = 4200; tBp.Q.value = 3.4;
-    tOsc.connect(tBp); tOsc2.connect(tBp); tBp.connect(tG); tG.connect(this.master);
-    tOsc.start(); tOsc2.start();
+    const tBp = ctx.createBiquadFilter(); tBp.type = 'bandpass'; tBp.frequency.value = 4200; tBp.Q.value = 7.5;
+    const tBp2 = ctx.createBiquadFilter(); tBp2.type = 'peaking'; tBp2.frequency.value = 6200;
+    tBp2.Q.value = 6; tBp2.gain.value = 9;
+    tOsc.connect(tBp); tOsc2.connect(tBp); tOsc3.connect(tBp);
+    tBp.connect(tBp2); tBp2.connect(tG); tG.connect(this.master);
+    tOsc.start(); tOsc2.start(); tOsc3.start();
     const tNoise = this._mkNoise();
     const tnF = ctx.createBiquadFilter(); tnF.type = 'bandpass'; tnF.frequency.value = 5200; tnF.Q.value = 1.6;
     const tnG = ctx.createGain(); tnG.gain.value = 0;
     tNoise.connect(tnF); tnF.connect(tnG); tnG.connect(this.master);
-    this.nodes.turbo = { osc: tOsc, osc2: tOsc2, gain: tG, bp: tBp, nG: tnG, nF: tnF };
+    this.nodes.turbo = { osc: tOsc, osc2: tOsc2, osc3: tOsc3, gain: tG, bp: tBp, bp2: tBp2, nG: tnG, nF: tnF };
 
     /* supercharger whine — strong odd harmonics from the rotor lobes */
     const scSum = ctx.createGain(); scSum.gain.value = 0;
@@ -5956,30 +6069,40 @@ const Audio2 = {
 
     /* --- tone shaping --- */
     let limiterCut = 1;
-    if (rpm >= redline * 0.995 && load > 0.4) limiterCut = (Math.sin(t * 78) > 0 ? 0.25 : 1);
+    if (rpm >= redline * 0.995 && load > 0.4) {
+      limiterCut = (Math.sin(t * 78) > 0 ? 0.18 : 1);
+      if (limiterCut < 0.5) this.misfire(0.8);
+    }
     const exhaust = 1 + (tune.exhaust || 0) * 0.28;
-    N.eng.lp.frequency.setTargetAtTime((900 + 3400 * rev + 2200 * load) * exhaust, t, 0.04);
+    N.eng.lp.frequency.setTargetAtTime((1500 + 5200 * rev + 3400 * load) * exhaust, t, 0.035);
     N.eng.p1.gain.setTargetAtTime(6 + 5 * (1 - rev), t, 0.08);
     N.eng.p2.gain.setTargetAtTime(3 + 6 * load, t, 0.08);
-    N.eng.p3.gain.setTargetAtTime(-6 + 9 * load * (tune.exhaust || 0) * 0.5, t, 0.1);
-    const vol = (0.16 + 0.40 * load + 0.30 * rev) * prox * limiterCut * (0.85 + 0.30 * (tune.exhaust || 0));
-    N.eng.out.gain.setTargetAtTime(vol * 0.62, t, 0.035);
+    N.eng.p3.gain.setTargetAtTime(-1 + 8 * load + 3 * rev, t, 0.08);
+    N.eng.p4.gain.setTargetAtTime(-3 + 7 * load * rev, t, 0.08);
+    const vol = (0.22 + 0.52 * load + 0.38 * rev) * prox * limiterCut * (0.85 + 0.30 * (tune.exhaust || 0));
+    N.eng.out.gain.setTargetAtTime(vol * 0.82, t, 0.030);
 
     /* --- forced induction --- */
     const boost = clamp01(car.boostPsi ? car.boostPsi / Math.max(1, car.maxBoostPsi || 12) : 0);
     if (car.forced === 'turbo') {
-      N.turbo.osc.frequency.setTargetAtTime(2200 + 7800 * boost, t, 0.06);
-      N.turbo.osc2.frequency.setTargetAtTime(3300 + 11000 * boost, t, 0.06);
-      N.turbo.bp.frequency.setTargetAtTime(3000 + 7000 * boost, t, 0.06);
-      N.turbo.gain.gain.setTargetAtTime(0.030 * boost * boost * prox, t, 0.08);
-      N.turbo.nG.gain.setTargetAtTime(0.020 * boost * load * prox, t, 0.08);
+      // shaft speed tracks both boost and revs, so the whine climbs with the engine
+      const shaft = clamp01(boost * 0.72 + rev * 0.38);
+      const f0 = 1500 + 9500 * shaft;
+      N.turbo.osc.frequency.setTargetAtTime(f0, t, 0.045);
+      N.turbo.osc2.frequency.setTargetAtTime(f0 * 1.62, t, 0.045);
+      N.turbo.osc3.frequency.setTargetAtTime(f0 * 2.41, t, 0.045);
+      N.turbo.bp.frequency.setTargetAtTime(f0 * 1.05, t, 0.045);
+      N.turbo.bp2.frequency.setTargetAtTime(f0 * 1.7, t, 0.05);
+      N.turbo.gain.gain.setTargetAtTime(0.105 * (0.20 + 0.80 * boost) * shaft * prox, t, 0.06);
+      N.turbo.nF.frequency.setTargetAtTime(3800 + 6000 * shaft, t, 0.06);
+      N.turbo.nG.gain.setTargetAtTime(0.045 * boost * (0.3 + 0.7 * load) * prox, t, 0.07);
       N.sc.sum.gain.setTargetAtTime(0, t, 0.1);
-      if (this._lastLoad > 0.5 && load < 0.15 && boost > 0.25) this.bov(boost, tune.bovFlutter);
+      if (this._lastLoad > 0.45 && load < 0.16 && boost > 0.16) this.flutter(boost);
     } else if (car.forced === 'super') {
       const base = rpm / 60 * 3.2;
       for (const s of N.sc.oscs) s.o.frequency.setTargetAtTime(clamp(base * s.h * 2.6, 20, 12000), t, 0.03);
       N.sc.bp.frequency.setTargetAtTime(1400 + 3600 * rev, t, 0.05);
-      N.sc.sum.gain.setTargetAtTime(0.055 * (0.25 + 0.75 * load) * rev * prox, t, 0.05);
+      N.sc.sum.gain.setTargetAtTime(0.115 * (0.25 + 0.75 * load) * (0.25 + 0.75 * rev) * prox, t, 0.05);
       N.turbo.gain.gain.setTargetAtTime(0, t, 0.1);
       N.turbo.nG.gain.setTargetAtTime(0, t, 0.1);
     } else {
@@ -5989,10 +6112,13 @@ const Audio2 = {
     }
 
     /* --- overrun pops --- */
-    if (this._lastLoad > 0.55 && load < 0.12 && rev > 0.42 && t - this._popT > 0.25) {
+    if (this._lastLoad > 0.45 && load < 0.14 && rev > 0.34 && t - this._popT > 0.22) {
       this._popT = t;
-      const n = 2 + ((Math.random() * 4) | 0);
-      for (let i = 0; i < n; i++) setTimeout(() => this.pop(0.35 + Math.random() * 0.45 * rev), i * (40 + Math.random() * 70));
+      const n = 3 + ((Math.random() * 5) | 0);
+      const boostBias = 1 + (car.forced !== 'none' ? 0.6 : 0) + (tune.exhaust || 0) * 0.25;
+      for (let i = 0; i < n; i++)
+        setTimeout(() => this.pop((0.55 + Math.random() * 0.6 * rev) * boostBias),
+          i * (32 + Math.random() * 60));
     }
     this._lastLoad = load; this._lastRpm = rpm;
 
@@ -6030,7 +6156,7 @@ const Audio2 = {
   /* ---------------- one-shots ---------------- */
   _burst(cfg) {
     if (!this.ready) return;
-    const ctx = this.ctx, t = ctx.currentTime;
+    const ctx = this.ctx, t = cfg.when === undefined ? ctx.currentTime : Math.max(cfg.when, ctx.currentTime);
     const s = ctx.createBufferSource(); s.buffer = this.noiseBuf;
     s.playbackRate.value = cfg.rate || 1;
     const f = ctx.createBiquadFilter();
@@ -6045,9 +6171,9 @@ const Audio2 = {
     if (cfg.rev) g.connect(this.nodes.revSend);
     s.start(t); s.stop(t + cfg.dur + 0.05);
   },
-  _tone(freq, dur, vol, type, sweep) {
+  _tone(freq, dur, vol, type, sweep, when) {
     if (!this.ready) return;
-    const ctx = this.ctx, t = ctx.currentTime;
+    const ctx = this.ctx, t = when === undefined ? ctx.currentTime : Math.max(when, ctx.currentTime);
     const o = ctx.createOscillator(); o.type = type || 'sine';
     o.frequency.setValueAtTime(freq, t);
     if (sweep) o.frequency.exponentialRampToValueAtTime(Math.max(20, sweep), t + dur);
@@ -6059,9 +6185,41 @@ const Audio2 = {
   },
 
   pop(strength) {
-    this._burst({ f0: 900 + Math.random() * 1400, f1: 220, dur: 0.11, vol: 0.16 * strength, q: 0.8, rev: 1 });
-    this._tone(90 + Math.random() * 50, 0.09, 0.10 * strength, 'triangle', 45);
+    this._burst({ f0: 1100 + Math.random() * 2400, f1: 200, dur: 0.10, vol: 0.24 * strength, q: 0.9, rev: 1 });
+    this._burst({ f0: 5200, dur: 0.022, vol: 0.13 * strength, q: 2.5 });
+    this._tone(85 + Math.random() * 60, 0.10, 0.15 * strength, 'triangle', 42);
   },
+  /* compressor surge — the stu-stu-stu when the throttle shuts on boost */
+  flutter(boost) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    if (t - (this._flutT || 0) < 0.30) return;
+    this._flutT = t;
+    const n = 5 + ((Math.random() * 5) | 0);
+    const gap = 0.030 + Math.random() * 0.014;
+    for (let i = 0; i < n; i++) {
+      const k = 1 - i / n;
+      this._burst({
+        f0: (2600 + Math.random() * 900) * (0.65 + 0.45 * k),
+        dur: 0.030 + 0.012 * k, vol: (0.10 + 0.16 * boost) * (0.45 + 0.55 * k),
+        q: 9, when: t + i * gap, rev: 1
+      });
+      this._tone(190 + 120 * k, 0.035, 0.05 * boost * k, 'square', 120, t + i * gap);
+    }
+    // the exhale at the end
+    this._burst({ f0: 3600, f1: 1100, dur: 0.22, vol: 0.09 * boost, q: 1.5, when: t + n * gap, rev: 1 });
+  },
+
+  /* ignition cut: fuel keeps arriving and lights in the pipe */
+  misfire(strength) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    if (t - (this._misT || 0) < 0.055) return;
+    this._misT = t;
+    this._burst({ f0: 1400 + Math.random() * 2200, f1: 260, dur: 0.075, vol: 0.16 * strength, q: 1.1, rev: 1 });
+    this._tone(110 + Math.random() * 90, 0.06, 0.11 * strength, 'square', 55);
+  },
+
   bov(boost, flutter) {
     if (flutter) {
       for (let i = 0; i < 7; i++)
@@ -6546,6 +6704,7 @@ const R = {
     this.progs.fxaa = makeProgram('fxaa', SH.fsVS, SH.fxaaFS, {});
     this.progs.part = makeProgram('part', SH.partVS, SH.partFS, {});
     this.progs.skid = makeProgram('skid', SH.skidVS, SH.skidFS, {});
+    this.progs.gps = makeProgram('gps', SH.gpsVS, SH.gpsFS, {});
     this.progs.glass = makeProgram('glass', SH.glassVS, SH.glassFS, {});
     this.progs.ssr = makeProgram('ssr', SH.fsVS, SH.ssrFS, {});
     this.progs.blit = makeProgram('blit', SH.fsVS, SH.blitFS, {});
@@ -6946,6 +7105,7 @@ const R = {
       .f('uAmbStrength', this.sky.ambStrength)
       .f('uFogDensity', this.sky.fogDensity).f('uFogHeight', this.sky.fogHeight)
       .f('uWindowLit', this.sky.windowLit)
+      .f('uWear', this.wear === undefined ? 0.35 : this.wear)
       .v3('uCsmSplit', this.csmSplit[0], this.csmSplit[1], this.csmSplit[2])
       .i('uLCount', this.lights.n)
       .v4v('uLPos', this.lights.pos).v4v('uLCol', this.lights.col).v4v('uLDir', this.lights.dir);
@@ -6997,6 +7157,18 @@ const R = {
       kp.m4('uVP', this.vp).v3('uTint', 0.020, 0.020, 0.024).f('uWetLocal', this.wet);
       this.setSkyUniforms(kp);
       scene.skid.draw();
+      gl.disable(gl.BLEND);
+    }
+
+    /* ---- 6b. satnav ribbon ---- */
+    if (scene.nav && scene.nav.count > 2) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
+      const np = this.progs.gps.use();
+      np.m4('uVP', this.vp).v3('uCol', 0.22, 1.35, 1.9)
+        .f('uTime', this.time).f('uFadeStart', 0);
+      scene.nav.draw();
       gl.disable(gl.BLEND);
     }
 
@@ -7078,9 +7250,9 @@ const R = {
       .f('uShaftAmt', this._shaftAmt || 0)
       .v2('uRes', this.W, this.H)
       .f('uExposure', this.exposure).f('uBloomAmt', bl.length ? 0.055 : 0)
-      .f('uVignette', 0.34).f('uGrain', 0.024).f('uCA', scene.ca === undefined ? 0.9 : scene.ca)
+      .f('uVignette', 0.30).f('uGrain', 0.012).f('uCA', scene.ca === undefined ? 0.9 : scene.ca)
       .f('uTime', this.time).f('uSpeedBlur', this.speedBlur)
-      .f('uSat', 1.10).f('uContrast', 1.085).f('uNightGrade', this.sky.night)
+      .f('uSat', 1.13).f('uContrast', 1.11).f('uNightGrade', this.sky.night)
       .v3('uLift', -0.006, -0.004, 0.004).v3('uGain', 1.0, 0.995, 1.005)
       .f('uFlash', this.flash);
     drawFullscreen();
@@ -8414,6 +8586,20 @@ const MapView = {
       }
     }
 
+    // satnav route
+    if (Nav.path && Nav.path.length > 1) {
+      c.strokeStyle = 'rgba(34,227,255,.75)';
+      c.lineWidth = Math.max(2, 3 * this.dpr);
+      c.lineJoin = 'round'; c.lineCap = 'round';
+      c.shadowColor = '#22e3ff'; c.shadowBlur = 8 * this.dpr;
+      c.beginPath();
+      Nav.path.forEach((pt, i) => {
+        const q = this.worldToScreen(pt[0], pt[1]);
+        i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]);
+      });
+      c.stroke(); c.shadowBlur = 0;
+    }
+
     // waypoint
     if (this.waypoint) this.pin(c, this.worldToScreen(this.waypoint.x, this.waypoint.z), '#ffcf6b');
 
@@ -8467,6 +8653,149 @@ const MapView = {
     const dist = Math.hypot(dx, dz);
     if (dist < 14) { this.waypoint = null; Game.toast('Waypoint reached', 'good'); Audio2.checkpoint(); return null; }
     return { dist, bearing: Math.atan2(dx, dz) };
+  }
+};
+
+</script>
+<script>
+/* ===== 98_nav.js ===== */
+'use strict';
+/* ============================================================
+   Apex Drive — satnav: route finding + the line painted on the road
+   ============================================================ */
+
+const Nav = {
+  path: [],            // world-space polyline
+  nodes: [],           // grid nodes of the route
+  dirty: false,
+  vao: null, buf: null, count: 0, cap: 0,
+  _lastKey: '',
+
+  initGL() {
+    this.cap = 4096;                       // vertices
+    this.data = new Float32Array(this.cap * 5);   // xyz + u,v
+    this.vao = gl.createVertexArray();
+    gl.bindVertexArray(this.vao);
+    this.buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, this.data.byteLength, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(ATTR.POS);
+    gl.vertexAttribPointer(ATTR.POS, 3, gl.FLOAT, false, 20, 0);
+    gl.enableVertexAttribArray(ATTR.UV);
+    gl.vertexAttribPointer(ATTR.UV, 2, gl.FLOAT, false, 20, 12);
+    gl.bindVertexArray(null);
+  },
+
+  clear() { this.path.length = 0; this.count = 0; this._lastKey = ''; },
+
+  /* nearest grid intersection to a world point */
+  nearestNode(x, z) {
+    const N = World.N;
+    return [clamp(Math.round((x + World.half) / World.CELL), 0, N),
+    clamp(Math.round((z + World.half) / World.CELL), 0, N)];
+  },
+
+  /* breadth-first over the road grid — every edge is one block, so it is optimal */
+  findPath(ai, aj, bi, bj) {
+    const N = World.N, W = N + 1;
+    const id = (i, j) => j * W + i;
+    const prev = new Int32Array(W * W).fill(-1);
+    const seen = new Uint8Array(W * W);
+    const q = [id(ai, aj)];
+    seen[q[0]] = 1;
+    const goal = id(bi, bj);
+    let head = 0;
+    while (head < q.length) {
+      const cur = q[head++];
+      if (cur === goal) break;
+      const ci = cur % W, cj = (cur / W) | 0;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = ci + di, nj = cj + dj;
+        if (ni < 0 || nj < 0 || ni > N || nj > N) continue;
+        const nid = id(ni, nj);
+        if (seen[nid]) continue;
+        seen[nid] = 1; prev[nid] = cur; q.push(nid);
+      }
+    }
+    if (!seen[goal]) return [];
+    const out = [];
+    for (let cur = goal; cur !== -1; cur = prev[cur]) {
+      out.push([cur % W, (cur / W) | 0]);
+      if (cur === id(ai, aj)) break;
+    }
+    return out.reverse();
+  },
+
+  /* recompute when the car has moved to a different intersection */
+  update(car, waypoint) {
+    if (!waypoint) { if (this.count) this.clear(); return; }
+    const a = this.nearestNode(car.pos[0], car.pos[2]);
+    const b = this.nearestNode(waypoint.x, waypoint.z);
+    const key = a[0] + ',' + a[1] + '>' + b[0] + ',' + b[1];
+    if (key === this._lastKey) return;
+    this._lastKey = key;
+
+    const nodes = this.findPath(a[0], a[1], b[0], b[1]);
+    this.nodes = nodes;
+    const pts = [];
+    pts.push([car.pos[0], car.pos[2]]);
+    // the nearest junction is often already behind the car; including it makes
+    // the ribbon double back on itself
+    const f = [0, 0, 0]; car.dirWorld(f, [0, 0, 1]);
+    let start = 0;
+    if (nodes.length > 1) {
+      const nx = World.roadX(nodes[0][0]) - car.pos[0];
+      const nz = World.roadX(nodes[0][1]) - car.pos[2];
+      if (nx * f[0] + nz * f[2] < 0 && Math.hypot(nx, nz) < World.CELL * 0.85) start = 1;
+    }
+    for (let k = start; k < nodes.length; k++)
+      pts.push([World.roadX(nodes[k][0]), World.roadX(nodes[k][1])]);
+    pts.push([waypoint.x, waypoint.z]);
+    this.path = pts;
+    this.build(pts);
+  },
+
+  /* lay a ribbon of quads along the polyline, offset into the right-hand lane */
+  build(pts) {
+    if (pts.length < 2) { this.count = 0; return; }
+    const HW = 0.9, LANE = 3.4, Y = 0.035;
+    const d = this.data;
+    let v = 0, run = 0;
+    const push = (x, z, u, dist) => {
+      if (v + 1 > this.cap) return;
+      const o = v * 5;
+      d[o] = x; d[o + 1] = Y; d[o + 2] = z; d[o + 3] = u; d[o + 4] = dist;
+      v++;
+    };
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, z0] = pts[i], [x1, z1] = pts[i + 1];
+      let dx = x1 - x0, dz = z1 - z0;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.5) continue;
+      dx /= len; dz /= len;
+      const nx = -dz, nz = dx;                 // left normal
+      const ox = dz * LANE, oz = -dx * LANE;   // shift into the right-hand lane
+      const ax = x0 + ox, az = z0 + oz, bx = x1 + ox, bz = z1 + oz;
+      const d0 = run, d1 = run + len;
+      // two triangles
+      push(ax - nx * HW, az - nz * HW, 0, d0);
+      push(ax + nx * HW, az + nz * HW, 1, d0);
+      push(bx + nx * HW, bz + nz * HW, 1, d1);
+      push(ax - nx * HW, az - nz * HW, 0, d0);
+      push(bx + nx * HW, bz + nz * HW, 1, d1);
+      push(bx - nx * HW, bz - nz * HW, 0, d1);
+      run = d1;
+    }
+    this.count = v;
+    this.total = run;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.data, 0, v * 5);
+  },
+
+  draw() {
+    if (this.count < 3) return;
+    gl.bindVertexArray(this.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, this.count);
   }
 };
 
@@ -8632,6 +8961,8 @@ const Game = {
       skid: new SkidTrails(1500), ca: .9
     };
     this.scene.skid.initGL();
+    Nav.initGL();
+    this.scene.nav = Nav;
     this.gateMesh = buildMesh(geoArch(13, 8.5, .7).done());
     this.gateBatch = new Batch(this.gateMesh, 64, true);
     this.signalBatch = new Batch(R.meshes.sph, 320, true);
@@ -8756,6 +9087,7 @@ const Game = {
       else { $('menu').classList.remove('hidden'); this.state = 'menu'; this.updateMenuCard(); }
       this.prevState = null;
     });
+    $('menubtn').onclick = () => { Audio2.ui('tick'); if (MapView.open) MapView.close(); this.setPaused(!this.paused); };
     $('resume').onclick = () => this.setPaused(false);
     $('p-menu').onclick = () => { this.setPaused(false); this.toMenu(); };
     $('p-settings').onclick = () => { this.prevState = 'pause'; $('pause').classList.add('hidden'); $('settings').classList.remove('hidden'); this.state = 'settings'; };
@@ -9094,9 +9426,10 @@ const Game = {
     } else {
       p.handbrake = 1; p.boostActive = 0; p.nosActive = 0;
     }
-    p.throttle = inp.throttle; p.brake = inp.brake;
-    p.throttleSm = damp(p.throttleSm || 0, inp.throttle, 9, dt);
     p.autoGearbox(dt, inp);
+    const drive = p.mapPedals(inp);
+    p.throttle = drive.throttle; p.brake = drive.brake;
+    p.throttleSm = damp(p.throttleSm || 0, drive.throttle, 9, dt);
     const prevGear = p.gear;
     p.update(dt, inp, World);
     if (p.gear !== prevGear && playing && !S.manual) Audio2.shift(p.gear > prevGear);
@@ -9119,6 +9452,8 @@ const Game = {
     this.updateCamera(dt, playing);
     this.updateMode(dt, playing);
 
+    this._navT = (this._navT || 0) + dt;
+    if (this._navT > 0.25) { this._navT = 0; Nav._lastKey = ''; Nav.update(p, MapView.waypoint); }
     const wp = MapView.guidance();
     const wl = $('wayline');
     if (wp) {
@@ -9143,9 +9478,10 @@ const Game = {
       this._saveT = (this._saveT || 0) + dt;
       if (this._saveT > 12) { this._saveT = 0; Garage.car().damage = p.damage; Garage.save(); }
     }
+    R.wear = clamp01(0.22 + (p.damage || 0) * 0.85 + clamp01(p.odo / 90000) * 0.25);
     R.speedBlur = S.mblur ? clamp01((kmh - 95) / 210) * .95 * (p.nosActive ? 1.6 : 1) : 0;
     R.cam.fov = damp(R.cam.fov, S.fov + clamp01((kmh - 40) / 260) * 15 + (p.nosActive ? 6 : 0), 4, dt);
-    this.scene.ca = .8 + clamp01((kmh - 120) / 200) * 2.4;
+    this.scene.ca = clamp01((kmh - 150) / 190) * 1.5;
   },
 
   updateMode(dt, playing) {
@@ -9394,6 +9730,55 @@ const Game = {
         vx: (Math.random() - .5) * 6 - p.vel[0] * .2, vy: Math.random() * 3, vz: (Math.random() - .5) * 6 - p.vel[2] * .2,
         s0: .07, s1: .02, life: .28, r: 3.0, g: 1.5, b: .4, a: 1, kind: P_STREAK, stretch: .2, drag: 1, grav: -14, add: 1
       });
+    }
+
+    /* exhaust flames — upshifts on boost, overrun and the rev limiter */
+    {
+      const rev = clamp01(p.rpm / p.ph.redline);
+      const lift = (this._lastThr || 0) > 0.45 && p.throttleSm < 0.16;
+      const shiftPop = p.shiftFlash > 0.72 && rev > 0.55;
+      const limiter = p.onLimiter && p.throttleSm > 0.5;
+      const bias = (p.forced !== 'none' ? 1.0 : 0.45)
+        + ((p.ph.parts && p.ph.parts.exhaust ? p.ph.parts.exhaust.snd : 0) || 0) * 0.30;
+      let want = 0;
+      if (limiter) want = 0.55 * bias;
+      else if (shiftPop) want = 0.95 * bias;
+      else if (lift && rev > 0.34) want = (0.35 + rev * 0.6) * bias;
+      if (want > 0.05 && Math.random() < want * 34 * dt) {
+        const pipes = p.spec.quadPipes ? [-1.75, -1.05, 1.05, 1.75] : [-1, 1];
+        const sx = pipes[(Math.random() * pipes.length) | 0];
+        const o = [0, 0, 0];
+        p.toWorld(o, [sx * p.spec.width * .155,
+        pf(p.spec.profile.sill, .05) + .14 - CAR_SAG,
+          -p.spec.len * .5 + .04]);
+        const back = [0, 0, 0]; p.dirWorld(back, [0, 0, -1]);
+        const n = 2 + ((want * 4) | 0);
+        for (let i = 0; i < n; i++) {
+          const sp = 6 + Math.random() * 16 * want;
+          P.emit({
+            x: o[0], y: o[1], z: o[2],
+            vx: p.vel[0] * .55 + back[0] * sp + (Math.random() - .5) * 2.2,
+            vy: p.vel[1] * .4 + 0.5 + Math.random() * 1.6,
+            vz: p.vel[2] * .55 + back[2] * sp + (Math.random() - .5) * 2.2,
+            s0: .13 + Math.random() * .12, s1: .02,
+            life: .075 + Math.random() * .13,
+            r: 6.5, g: 2.0 + Math.random() * 1.2, b: .35,
+            a: 1, kind: P_GLOW, drag: 5.5, grav: 3.0, add: 1
+          });
+        }
+        // a little soot behind the flame
+        P.emit({
+          x: o[0], y: o[1], z: o[2],
+          vx: back[0] * 3 + p.vel[0] * .5, vy: 1.1, vz: back[2] * 3 + p.vel[2] * .5,
+          s0: .16, s1: 1.1, life: .5, r: .10, g: .095, b: .09, a: .30,
+          kind: P_SMOKE, drag: 2.6, grav: 1.1
+        });
+        this.scene.sprites.add(o[0], o[1], o[2], .55 + want * .5, 5.0, 1.7, .35, .85 * want, P_GLOW);
+        this.scene.dynLights.push({ p: o, c: [1, .45, .12], r: 11, i: 55 * want, prio: 0 });
+        R.flash = Math.max(R.flash, 0.018 * want);
+        if (shiftPop || limiter) Audio2.misfire(0.55 + want * 0.5);
+      }
+      this._lastThr = p.throttleSm;
     }
 
     /* exhaust */

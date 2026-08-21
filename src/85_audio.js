@@ -104,10 +104,10 @@ const Audio2 = {
     const rpmK = Math.min(1, 2600 / baseRpm);
     const thumpF = fp.thump * (1 + (1 - rpmK) * 0.35);
     const resF = fp.res * (1 + (1 - rpmK) * 0.25);
-    const crackAmt = fp.crack * lerp(0.55, 1.0, load);
+    const crackAmt = fp.crack * lerp(0.85, 1.75, load);
     const tauThump = cycleSec * lerp(0.42, 0.26, load) / Math.max(1, cyl / 6);
     const tauRes = cycleSec * 0.30 / Math.max(1, cyl / 6);
-    const tauCrack = 0.0016 + 0.0042 * (1 - load);
+    const tauCrack = 0.0011 + 0.0028 * (1 - load);
 
     const add = (idx, v) => { d[((idx % n) + n) % n] += v; };
 
@@ -127,13 +127,15 @@ const Audio2 = {
         v += Math.sin(TAU * thumpF * 2.02 * t + phase * 1.3) * eT * 0.42 * load;
         v += Math.sin(TAU * resF * t + phase * 0.7) * eR * 0.55;
         v += Math.sin(TAU * resF * 1.51 * t) * eR * 0.22 * load;
-        v += (Math.random() * 2 - 1) * eC * crackAmt * 1.35;
+        v += (Math.random() * 2 - 1) * eC * crackAmt * 1.55;
+        // hard edge on the exhaust pulse — this is most of the 'bite'
+        v += Math.sin(TAU * resF * 3.1 * t) * Math.exp(-t / (tauCrack * 3.2)) * 0.34 * load;
         if (forced === 'turbo') v += (Math.random() * 2 - 1) * Math.exp(-t / 0.010) * 0.20 * load;
         add(start + i, v * gain);
       }
     }
     // one-pole smoothing to knock the hardest edges off
-    let p = 0; const a = load > 0.5 ? 0.62 : 0.46;
+    let p = 0; const a = load > 0.5 ? 0.82 : 0.64;
     for (let i = 0; i < n; i++) { p = p + (d[i] - p) * a; d[i] = p; }
     // wrap the filter once more so the loop point is continuous
     for (let i = 0; i < 64; i++) { p = p + (d[i] - p) * a; d[i] = p; }
@@ -156,8 +158,9 @@ const Audio2 = {
     };
     const p1 = mkPeak(140, 2.2, 7);
     const p2 = mkPeak(430, 1.6, 5);
-    const p3 = mkPeak(1650, 1.1, -4);
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800; lp.Q.value = 0.7;
+    const p3 = mkPeak(1900, 1.5, 2);
+    const p4 = mkPeak(3400, 1.2, 0);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; lp.Q.value = 1.05;
     const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 42;
 
     const shaper = ctx.createWaveShaper();
@@ -166,24 +169,29 @@ const Audio2 = {
     shaper.curve = cv; shaper.oversample = '2x';
 
     const out = ctx.createGain(); out.gain.value = 0.0;
-    sum.connect(p1); p1.connect(p2); p2.connect(p3); p3.connect(shaper);
+    sum.connect(p1); p1.connect(p2); p2.connect(p3); p3.connect(p4); p4.connect(shaper);
     shaper.connect(lp); lp.connect(hp); hp.connect(out);
     out.connect(this.master); out.connect(this.nodes.revSend);
 
-    this.nodes.eng = { sum, lp, hp, out, p1, p2, p3, shaper };
+    this.nodes.eng = { sum, lp, hp, out, p1, p2, p3, p4, shaper };
 
     /* turbo */
-    const tOsc = ctx.createOscillator(); tOsc.type = 'triangle'; tOsc.frequency.value = 3600;
+    // the whine is the blade-pass tone plus a beating second impeller order
+    const tOsc = ctx.createOscillator(); tOsc.type = 'sawtooth'; tOsc.frequency.value = 3600;
     const tOsc2 = ctx.createOscillator(); tOsc2.type = 'sine'; tOsc2.frequency.value = 5400;
+    const tOsc3 = ctx.createOscillator(); tOsc3.type = 'sine'; tOsc3.frequency.value = 7800;
     const tG = ctx.createGain(); tG.gain.value = 0;
-    const tBp = ctx.createBiquadFilter(); tBp.type = 'bandpass'; tBp.frequency.value = 4200; tBp.Q.value = 3.4;
-    tOsc.connect(tBp); tOsc2.connect(tBp); tBp.connect(tG); tG.connect(this.master);
-    tOsc.start(); tOsc2.start();
+    const tBp = ctx.createBiquadFilter(); tBp.type = 'bandpass'; tBp.frequency.value = 4200; tBp.Q.value = 7.5;
+    const tBp2 = ctx.createBiquadFilter(); tBp2.type = 'peaking'; tBp2.frequency.value = 6200;
+    tBp2.Q.value = 6; tBp2.gain.value = 9;
+    tOsc.connect(tBp); tOsc2.connect(tBp); tOsc3.connect(tBp);
+    tBp.connect(tBp2); tBp2.connect(tG); tG.connect(this.master);
+    tOsc.start(); tOsc2.start(); tOsc3.start();
     const tNoise = this._mkNoise();
     const tnF = ctx.createBiquadFilter(); tnF.type = 'bandpass'; tnF.frequency.value = 5200; tnF.Q.value = 1.6;
     const tnG = ctx.createGain(); tnG.gain.value = 0;
     tNoise.connect(tnF); tnF.connect(tnG); tnG.connect(this.master);
-    this.nodes.turbo = { osc: tOsc, osc2: tOsc2, gain: tG, bp: tBp, nG: tnG, nF: tnF };
+    this.nodes.turbo = { osc: tOsc, osc2: tOsc2, osc3: tOsc3, gain: tG, bp: tBp, bp2: tBp2, nG: tnG, nF: tnF };
 
     /* supercharger whine — strong odd harmonics from the rotor lobes */
     const scSum = ctx.createGain(); scSum.gain.value = 0;
@@ -317,30 +325,40 @@ const Audio2 = {
 
     /* --- tone shaping --- */
     let limiterCut = 1;
-    if (rpm >= redline * 0.995 && load > 0.4) limiterCut = (Math.sin(t * 78) > 0 ? 0.25 : 1);
+    if (rpm >= redline * 0.995 && load > 0.4) {
+      limiterCut = (Math.sin(t * 78) > 0 ? 0.18 : 1);
+      if (limiterCut < 0.5) this.misfire(0.8);
+    }
     const exhaust = 1 + (tune.exhaust || 0) * 0.28;
-    N.eng.lp.frequency.setTargetAtTime((900 + 3400 * rev + 2200 * load) * exhaust, t, 0.04);
+    N.eng.lp.frequency.setTargetAtTime((1500 + 5200 * rev + 3400 * load) * exhaust, t, 0.035);
     N.eng.p1.gain.setTargetAtTime(6 + 5 * (1 - rev), t, 0.08);
     N.eng.p2.gain.setTargetAtTime(3 + 6 * load, t, 0.08);
-    N.eng.p3.gain.setTargetAtTime(-6 + 9 * load * (tune.exhaust || 0) * 0.5, t, 0.1);
-    const vol = (0.16 + 0.40 * load + 0.30 * rev) * prox * limiterCut * (0.85 + 0.30 * (tune.exhaust || 0));
-    N.eng.out.gain.setTargetAtTime(vol * 0.62, t, 0.035);
+    N.eng.p3.gain.setTargetAtTime(-1 + 8 * load + 3 * rev, t, 0.08);
+    N.eng.p4.gain.setTargetAtTime(-3 + 7 * load * rev, t, 0.08);
+    const vol = (0.22 + 0.52 * load + 0.38 * rev) * prox * limiterCut * (0.85 + 0.30 * (tune.exhaust || 0));
+    N.eng.out.gain.setTargetAtTime(vol * 0.82, t, 0.030);
 
     /* --- forced induction --- */
     const boost = clamp01(car.boostPsi ? car.boostPsi / Math.max(1, car.maxBoostPsi || 12) : 0);
     if (car.forced === 'turbo') {
-      N.turbo.osc.frequency.setTargetAtTime(2200 + 7800 * boost, t, 0.06);
-      N.turbo.osc2.frequency.setTargetAtTime(3300 + 11000 * boost, t, 0.06);
-      N.turbo.bp.frequency.setTargetAtTime(3000 + 7000 * boost, t, 0.06);
-      N.turbo.gain.gain.setTargetAtTime(0.030 * boost * boost * prox, t, 0.08);
-      N.turbo.nG.gain.setTargetAtTime(0.020 * boost * load * prox, t, 0.08);
+      // shaft speed tracks both boost and revs, so the whine climbs with the engine
+      const shaft = clamp01(boost * 0.72 + rev * 0.38);
+      const f0 = 1500 + 9500 * shaft;
+      N.turbo.osc.frequency.setTargetAtTime(f0, t, 0.045);
+      N.turbo.osc2.frequency.setTargetAtTime(f0 * 1.62, t, 0.045);
+      N.turbo.osc3.frequency.setTargetAtTime(f0 * 2.41, t, 0.045);
+      N.turbo.bp.frequency.setTargetAtTime(f0 * 1.05, t, 0.045);
+      N.turbo.bp2.frequency.setTargetAtTime(f0 * 1.7, t, 0.05);
+      N.turbo.gain.gain.setTargetAtTime(0.105 * (0.20 + 0.80 * boost) * shaft * prox, t, 0.06);
+      N.turbo.nF.frequency.setTargetAtTime(3800 + 6000 * shaft, t, 0.06);
+      N.turbo.nG.gain.setTargetAtTime(0.045 * boost * (0.3 + 0.7 * load) * prox, t, 0.07);
       N.sc.sum.gain.setTargetAtTime(0, t, 0.1);
-      if (this._lastLoad > 0.5 && load < 0.15 && boost > 0.25) this.bov(boost, tune.bovFlutter);
+      if (this._lastLoad > 0.45 && load < 0.16 && boost > 0.16) this.flutter(boost);
     } else if (car.forced === 'super') {
       const base = rpm / 60 * 3.2;
       for (const s of N.sc.oscs) s.o.frequency.setTargetAtTime(clamp(base * s.h * 2.6, 20, 12000), t, 0.03);
       N.sc.bp.frequency.setTargetAtTime(1400 + 3600 * rev, t, 0.05);
-      N.sc.sum.gain.setTargetAtTime(0.055 * (0.25 + 0.75 * load) * rev * prox, t, 0.05);
+      N.sc.sum.gain.setTargetAtTime(0.115 * (0.25 + 0.75 * load) * (0.25 + 0.75 * rev) * prox, t, 0.05);
       N.turbo.gain.gain.setTargetAtTime(0, t, 0.1);
       N.turbo.nG.gain.setTargetAtTime(0, t, 0.1);
     } else {
@@ -350,10 +368,13 @@ const Audio2 = {
     }
 
     /* --- overrun pops --- */
-    if (this._lastLoad > 0.55 && load < 0.12 && rev > 0.42 && t - this._popT > 0.25) {
+    if (this._lastLoad > 0.45 && load < 0.14 && rev > 0.34 && t - this._popT > 0.22) {
       this._popT = t;
-      const n = 2 + ((Math.random() * 4) | 0);
-      for (let i = 0; i < n; i++) setTimeout(() => this.pop(0.35 + Math.random() * 0.45 * rev), i * (40 + Math.random() * 70));
+      const n = 3 + ((Math.random() * 5) | 0);
+      const boostBias = 1 + (car.forced !== 'none' ? 0.6 : 0) + (tune.exhaust || 0) * 0.25;
+      for (let i = 0; i < n; i++)
+        setTimeout(() => this.pop((0.55 + Math.random() * 0.6 * rev) * boostBias),
+          i * (32 + Math.random() * 60));
     }
     this._lastLoad = load; this._lastRpm = rpm;
 
@@ -391,7 +412,7 @@ const Audio2 = {
   /* ---------------- one-shots ---------------- */
   _burst(cfg) {
     if (!this.ready) return;
-    const ctx = this.ctx, t = ctx.currentTime;
+    const ctx = this.ctx, t = cfg.when === undefined ? ctx.currentTime : Math.max(cfg.when, ctx.currentTime);
     const s = ctx.createBufferSource(); s.buffer = this.noiseBuf;
     s.playbackRate.value = cfg.rate || 1;
     const f = ctx.createBiquadFilter();
@@ -406,9 +427,9 @@ const Audio2 = {
     if (cfg.rev) g.connect(this.nodes.revSend);
     s.start(t); s.stop(t + cfg.dur + 0.05);
   },
-  _tone(freq, dur, vol, type, sweep) {
+  _tone(freq, dur, vol, type, sweep, when) {
     if (!this.ready) return;
-    const ctx = this.ctx, t = ctx.currentTime;
+    const ctx = this.ctx, t = when === undefined ? ctx.currentTime : Math.max(when, ctx.currentTime);
     const o = ctx.createOscillator(); o.type = type || 'sine';
     o.frequency.setValueAtTime(freq, t);
     if (sweep) o.frequency.exponentialRampToValueAtTime(Math.max(20, sweep), t + dur);
@@ -420,9 +441,41 @@ const Audio2 = {
   },
 
   pop(strength) {
-    this._burst({ f0: 900 + Math.random() * 1400, f1: 220, dur: 0.11, vol: 0.16 * strength, q: 0.8, rev: 1 });
-    this._tone(90 + Math.random() * 50, 0.09, 0.10 * strength, 'triangle', 45);
+    this._burst({ f0: 1100 + Math.random() * 2400, f1: 200, dur: 0.10, vol: 0.24 * strength, q: 0.9, rev: 1 });
+    this._burst({ f0: 5200, dur: 0.022, vol: 0.13 * strength, q: 2.5 });
+    this._tone(85 + Math.random() * 60, 0.10, 0.15 * strength, 'triangle', 42);
   },
+  /* compressor surge — the stu-stu-stu when the throttle shuts on boost */
+  flutter(boost) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    if (t - (this._flutT || 0) < 0.30) return;
+    this._flutT = t;
+    const n = 5 + ((Math.random() * 5) | 0);
+    const gap = 0.030 + Math.random() * 0.014;
+    for (let i = 0; i < n; i++) {
+      const k = 1 - i / n;
+      this._burst({
+        f0: (2600 + Math.random() * 900) * (0.65 + 0.45 * k),
+        dur: 0.030 + 0.012 * k, vol: (0.10 + 0.16 * boost) * (0.45 + 0.55 * k),
+        q: 9, when: t + i * gap, rev: 1
+      });
+      this._tone(190 + 120 * k, 0.035, 0.05 * boost * k, 'square', 120, t + i * gap);
+    }
+    // the exhale at the end
+    this._burst({ f0: 3600, f1: 1100, dur: 0.22, vol: 0.09 * boost, q: 1.5, when: t + n * gap, rev: 1 });
+  },
+
+  /* ignition cut: fuel keeps arriving and lights in the pipe */
+  misfire(strength) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    if (t - (this._misT || 0) < 0.055) return;
+    this._misT = t;
+    this._burst({ f0: 1400 + Math.random() * 2200, f1: 260, dur: 0.075, vol: 0.16 * strength, q: 1.1, rev: 1 });
+    this._tone(110 + Math.random() * 90, 0.06, 0.11 * strength, 'square', 55);
+  },
+
   bov(boost, flutter) {
     if (flutter) {
       for (let i = 0; i < 7; i++)
