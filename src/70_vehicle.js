@@ -219,6 +219,10 @@ class Vehicle {
       this.boostPsi = damp(this.boostPsi, bTarget, rate, dt);
     } else if (ph.forced === 'super') {
       this.boostPsi = damp(this.boostPsi, bTarget, 22, dt);
+    } else if (ph.forced === 'centri') {
+      // belt-driven, so it answers the throttle at once — but the impeller
+      // has real inertia, so not quite as instantly as a Roots pack
+      this.boostPsi = damp(this.boostPsi, bTarget, 13, dt);
     } else this.boostPsi = 0;
     this.maxBoostPsi = ph.maxBoostPsi;
     this.forced = ph.forced;

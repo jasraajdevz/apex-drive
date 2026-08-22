@@ -254,7 +254,7 @@ const Game = {
     el.innerHTML = '<h4>Current build</h4>' +
       '<div class="mc-name">' + spec.name + '</div>' +
       '<div class="mc-sub">' + spec.cls + ' · ' + ph.drive.toUpperCase() +
-      (ph.forced !== 'none' ? ' · ' + (ph.forced === 'turbo' ? 'TURBO' : 'SUPERCHARGED') : '') + '</div>' +
+      (ph.forced !== 'none' ? ' · ' + (ph.forced === 'turbo' ? 'TURBO' : ph.forced === 'centri' ? 'CENTRIFUGAL' : 'SUPERCHARGED') : '') + '</div>' +
       '<div class="mc-grid">' +
       '<div><u>Power</u><b>' + st.hp + '</b></div>' +
       '<div><u>0-100</u><b>' + st.zero100.toFixed(1) + '</b></div>' +
@@ -672,13 +672,34 @@ const Game = {
     if (this._navT > 0.25) { this._navT = 0; Nav._lastKey = ''; Nav.update(p, MapView.waypoint); }
     const wp = MapView.guidance();
     const wl = $('wayline');
+    const tb = $('turnbox');
     if (wp) {
       wl.classList.remove('hidden');
-      $('waydist').textContent = wp.dist > 950
-        ? (wp.dist / 1000).toFixed(1) + ' km' : Math.round(wp.dist) + ' m';
+      $('waydist').textContent = fmtDist(wp.dist);
       const rel = wrapPi(wp.bearing - this.camYaw);
       $('wayline').firstElementChild.style.transform = 'rotate(' + rel.toFixed(3) + 'rad)';
-    } else wl.classList.add('hidden');
+
+      /* the actual instruction, which is a different thing from the bearing:
+         a needle can point straight through a building, a turn cannot */
+      const ins = Nav.instruction(p);
+      if (ins) {
+        tb.classList.remove('hidden');
+        const soon = ins.dist < 60;
+        tb.classList.toggle('soon', soon);
+        const arrow = ins.turn === 'arrive' ? '◉'
+          : ins.turn === 'right' ? (ins.sharp ? '⮡' : '↱') : (ins.sharp ? '⮠' : '↰');
+        $('turnarrow').textContent = arrow;
+        $('turndist').textContent = ins.dist < 22 && ins.turn !== 'arrive'
+          ? 'Now' : fmtDist(ins.dist);
+        $('turnword').textContent = ins.turn === 'arrive' ? 'destination'
+          : (ins.sharp ? 'sharp ' : '') + ins.turn;
+        this._turnAt = ins.at;
+        // one chirp as the turn comes up, not a stream of them
+        const key = ins.turn + '@' + Math.round(ins.at[0]) + ',' + Math.round(ins.at[1]);
+        if (soon && key !== this._turnCue) { this._turnCue = key; Audio2.blip(1180, .05, .035, 'sine'); }
+        if (!soon && ins.dist > 110) this._turnCue = '';
+      } else { tb.classList.add('hidden'); this._turnAt = null; }
+    } else { wl.classList.add('hidden'); tb.classList.add('hidden'); this._turnAt = null; }
     if (MapView.open) { this._mapT = (this._mapT || 0) + dt; if (this._mapT > 0.12) { this._mapT = 0; MapView.draw(); } }
 
     Audio2.updateEngine(p, dt, this.camMode === 2 ? 1.5 : this.camDist, R.wet > .5);

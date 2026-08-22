@@ -686,6 +686,26 @@ const Audio2 = {
       N.sc.sum.gain.setTargetAtTime(0.125 * (0.25 + 0.75 * load) * (0.25 + 0.75 * rev) * prox, t, 0.05);
       N.turbo.gain.gain.setTargetAtTime(0, t, 0.1);
       N.turbo.nG.gain.setTargetAtTime(0, t, 0.1);
+    } else if (car.forced === 'centri') {
+      /* The famous one. A centrifugal impeller runs at a fixed multiple of
+         crank speed, so unlike a turbo the pitch is locked to the tacho and
+         never lags behind it — that is exactly what makes the scream read as
+         belt-driven. Pure blade-pass tone, very little turbulence with it,
+         and it comes through the intake tract rather than the exhaust. */
+      const shaft = clamp01(rev * 0.92 + 0.08);
+      const f0 = 900 + 11500 * shaft * shaft;
+      N.turbo.osc.frequency.setTargetAtTime(f0, t, 0.02);
+      N.turbo.osc2.frequency.setTargetAtTime(f0 * 1.49, t, 0.02);
+      N.turbo.osc3.frequency.setTargetAtTime(f0 * 2.02, t, 0.02);
+      N.turbo.bp.frequency.setTargetAtTime(f0 * 1.04, t, 0.02);
+      N.turbo.bp2.frequency.setTargetAtTime(f0 * 1.55, t, 0.03);
+      N.turbo.gain.gain.setTargetAtTime(0.150 * (0.10 + 0.90 * shaft) * (0.35 + 0.65 * load) * prox, t, 0.035);
+      N.turbo.nF.frequency.setTargetAtTime(4200 + 5200 * shaft, t, 0.05);
+      N.turbo.nG.gain.setTargetAtTime(0.026 * shaft * (0.3 + 0.7 * load) * prox, t, 0.06);
+      N.sc.sum.gain.setTargetAtTime(0, t, 0.1);
+      // no wastegate and no throttle plate to slam shut, so no flutter — the
+      // belt keeps driving it and the bypass just sighs
+      if (this._lastLoad > 0.5 && load < 0.14 && rev > 0.45) this.bov(clamp01(rev), 0);
     } else {
       N.turbo.gain.gain.setTargetAtTime(0, t, 0.12);
       N.turbo.nG.gain.setTargetAtTime(0, t, 0.12);

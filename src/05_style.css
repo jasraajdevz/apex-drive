@@ -446,6 +446,27 @@ body.touchmode .shopbody{grid-template-columns:1fr;grid-template-rows:auto 1fr a
 #wayline i{font-style:normal;font-size:12px}
 #wayline b{font-size:14px;font-weight:700}
 
+/* turn-by-turn card: the one thing on the HUD you read while moving, so it
+   is big, high contrast, and always in the same place */
+#turnbox{position:absolute;top:22px;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:11px;padding:8px 15px 8px 11px;
+  background:rgba(7,12,19,.82);border:1px solid rgba(34,227,255,.34);
+  border-radius:13px;backdrop-filter:blur(9px);
+  box-shadow:0 6px 24px rgba(0,0,0,.45);color:#dfeaf6}
+#turnarrow{font-size:30px;line-height:1;color:var(--accent);
+  text-shadow:0 0 14px rgba(34,227,255,.55);width:34px;text-align:center}
+#turnbox .turntext{display:flex;flex-direction:column;line-height:1.12}
+#turnbox b{font-size:19px;font-weight:700;letter-spacing:.4px}
+#turnbox u{text-decoration:none;font-size:10px;letter-spacing:2.4px;
+  text-transform:uppercase;opacity:.62}
+#turnbox.soon{border-color:rgba(255,207,107,.6)}
+#turnbox.soon #turnarrow{color:var(--warm);text-shadow:0 0 16px rgba(255,207,107,.6)}
+@media (max-width:900px){
+  #turnbox{top:10px;padding:6px 11px 6px 8px;gap:8px;border-radius:11px}
+  #turnarrow{font-size:23px;width:26px}
+  #turnbox b{font-size:15px}
+}
+
 /* ---------- full-screen map ---------- */
 #mapscreen{flex-direction:column;background:rgba(4,7,12,.96);backdrop-filter:blur(14px);z-index:30}
 .maphead{display:flex;align-items:center;gap:18px;padding:14px clamp(14px,3vw,30px);

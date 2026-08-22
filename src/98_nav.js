@@ -131,6 +131,66 @@ const Nav = {
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.data, 0, v * 5);
   },
 
+  /* ---------------- turn by turn ----------------
+     The ribbon shows the route and the compass needle shows the bearing,
+     but neither of them tells you what to do at the junction you are about
+     to arrive at — and a needle pointing through a building is worse than
+     nothing. This walks forward along the path from wherever the car is,
+     finds the first corner worth calling, and says which way and how far.
+
+     Distance is measured along the route rather than straight to the turn,
+     because those are different numbers and only one of them is any use. */
+  instruction(car) {
+    const pts = this.path;
+    if (!pts || pts.length < 2) return null;
+
+    // which leg of the route the car is currently on, and how far along it
+    let bestI = 0, bestT = 0, bestD = 1e9;
+    const cx = car.pos[0], cz = car.pos[2];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const ax = pts[i][0], az = pts[i][1], bx = pts[i + 1][0], bz = pts[i + 1][1];
+      const dx = bx - ax, dz = bz - az;
+      const l2 = dx * dx + dz * dz;
+      if (l2 < 1e-4) continue;
+      const t = clamp01(((cx - ax) * dx + (cz - az) * dz) / l2);
+      const px = ax + dx * t, pz = az + dz * t;
+      const d = (cx - px) * (cx - px) + (cz - pz) * (cz - pz);
+      if (d < bestD) { bestD = d; bestI = i; bestT = t; }
+    }
+
+    const leg = (i) => {
+      const dx = pts[i + 1][0] - pts[i][0], dz = pts[i + 1][1] - pts[i][1];
+      const l = Math.hypot(dx, dz) || 1;
+      return [dx / l, dz / l, l];
+    };
+
+    let cur = leg(bestI);
+    let run = cur[2] * (1 - bestT);
+    for (let i = bestI + 1; i < pts.length - 1; i++) {
+      const nxt = leg(i);
+      // signed angle between the two legs: positive is to the right
+      const cross = cur[0] * nxt[1] - cur[1] * nxt[0];
+      const dot = cur[0] * nxt[0] + cur[1] * nxt[1];
+      const ang = Math.atan2(-cross, dot);
+      if (Math.abs(ang) > 0.42) {
+        return {
+          turn: ang > 0 ? 'right' : 'left',
+          sharp: Math.abs(ang) > 2.2,
+          dist: run, ang,
+          at: [pts[i][0], pts[i][1]]
+        };
+      }
+      run += nxt[2];
+      cur = nxt;
+      if (run > 900) break;
+    }
+    // nothing left to do but arrive
+    const end = pts[pts.length - 1];
+    let total = cur[2] * (1 - bestT);
+    for (let i = bestI + 1; i < pts.length - 1; i++) total += leg(i)[2];
+    return { turn: 'arrive', dist: total, ang: 0, at: [end[0], end[1]] };
+  },
+
   draw() {
     if (this.count < 3) return;
     gl.bindVertexArray(this.vao);

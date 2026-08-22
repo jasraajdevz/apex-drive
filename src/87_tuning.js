@@ -28,6 +28,14 @@ const PARTS = {
       { n: 'Race Twin-Turbo', cost: 96000, kind: 'turbo', psi: 27, spool: 4200, lag: 0.62, mass: 46 },
       { n: 'Roots Supercharger', cost: 36000, kind: 'super', psi: 10, mass: 40 },
       { n: 'Twin-Screw Blower', cost: 74000, kind: 'super', psi: 17, mass: 52 },
+      /* A centrifugal blower is neither of the other two. It is belt-driven,
+         so there is no lag and no wastegate — but it is a compressor wheel,
+         not a positive-displacement pump, so what it makes goes with the
+         SQUARE of shaft speed: almost nothing down low, everything at the
+         top. And the impeller sings, which is the whole reason people fit
+         one you can hear from the next street. */
+      { n: 'ProCharger Centrifugal', cost: 62000, kind: 'centri', psi: 15, mass: 44 },
+      { n: 'ProCharger Race Head Unit', cost: 118000, kind: 'centri', psi: 24, mass: 50 },
     ]
   },
   intake: { n: 'Intake', icon: '💨', items: [
@@ -257,6 +265,9 @@ function buildAcoustics(spec, eng, P, g) {
   } else {
     A.absorb = 1;
     if (fk === 'super') { A.plenum *= 1.26; A.plenumQ *= 1.15; }
+    // a centrifugal head unit hangs off the front of the engine and shouts
+    // straight down the intake tract
+    else if (fk === 'centri') { A.plenum *= 1.34; A.plenumQ *= 1.35; A.intake *= 1.25; }
   }
 
   /* Intake tier: a bigger mouth raises the Helmholtz frequency and
@@ -351,12 +362,15 @@ function buildPhys(carId) {
 /* normalised torque shape by rpm fraction, engine-character aware */
 function torqueShape(x, ph) {
   x = clamp01(x);
-  const forced = ph.forced !== 'none';
+  const centri = ph.forced === 'centri';
+  const forced = ph.forced !== 'none' && !centri;
   const cyl = ph.cylinders || 8;
   if (ph.soundType === 'ev') return clamp01(1.0 - Math.max(0, x - 0.42) * 0.85);
-  // peak position: big-bore NA peaks late, boosted engines peak early and flat
-  const peak = forced ? 0.50 : (cyl >= 10 ? 0.76 : 0.68);
-  const width = forced ? 0.46 : (cyl >= 10 ? 0.34 : 0.30);
+  // peak position: big-bore NA peaks late, turbos and Roots packs peak early
+  // and flat, a centrifugal peaks later than either because its own boost
+  // curve is still climbing all the way to the limiter
+  const peak = centri ? 0.82 : forced ? 0.50 : (cyl >= 10 ? 0.76 : 0.68);
+  const width = centri ? 0.40 : forced ? 0.46 : (cyl >= 10 ? 0.34 : 0.30);
   const lowEnd = forced ? 0.38 : (cyl >= 8 ? 0.66 : 0.52);
   const base = lerp(lowEnd, 1.0, clamp01(1 - Math.pow(Math.abs(x - peak) / width, 1.9)));
   const tail = x > 0.90 ? lerp(1, 0.80, (x - 0.90) / 0.12) : 1;
@@ -367,7 +381,15 @@ function torqueShape(x, ph) {
 /* boost in psi available at an rpm at full throttle */
 function boostAt(rpm, ph) {
   if (ph.forced === 'none' || ph.maxBoostPsi <= 0) return 0;
+  // positive displacement: one lungful per turn, so boost tracks rpm and is
+  // already all there just off idle
   if (ph.forced === 'super') return ph.maxBoostPsi * clamp01(rpm / (ph.redline * 0.72));
+  // centrifugal: pressure rises with the square of impeller speed, so it
+  // makes almost nothing low down and everything at the top of the tacho
+  if (ph.forced === 'centri') {
+    const x = clamp01(rpm / (ph.redline * 0.94));
+    return ph.maxBoostPsi * x * x;
+  }
   const t = clamp01((rpm - ph.spoolRpm * 0.55) / (ph.spoolRpm * 0.85));
   return ph.maxBoostPsi * t * t * (3 - 2 * t) / 1.0;
 }
