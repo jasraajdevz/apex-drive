@@ -10,6 +10,13 @@ const UNITS = [
   { id: 'ms', label: 'm/s', mul: 1, dist: 1000, distLabel: 'km' },
 ];
 
+/* a distance in whichever units the player picked, for the map and the HUD */
+function fmtDist(metres) {
+  const u = UNITS[clamp((Game.settings.units | 0), 0, UNITS.length - 1)];
+  const d = metres / u.dist;
+  return d < 0.1 ? Math.round(metres) + ' m' : d.toFixed(1) + ' ' + u.distLabel;
+}
+
 /* ============================================================
    FUEL
    ============================================================ */

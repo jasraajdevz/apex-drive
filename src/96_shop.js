@@ -49,7 +49,9 @@ const Shop = {
     this.cat = this.cat || 'cars';
     this.render();
   },
-  close() { this.el.root.classList.add('hidden'); this.preview(null); },
+  // startMode closes the shop unconditionally, which throws if anything
+  // reaches a mode before init has wired the elements up
+  close() { if (!this.el) return; this.el.root.classList.add('hidden'); this.preview(null); },
 
   /* hovering an item previews its effect on the stat panel */
   preview(ph) { this.previewPh = ph; this.drawStats(); },

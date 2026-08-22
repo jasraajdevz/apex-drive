@@ -6790,13 +6790,20 @@ const RingTraffic = {
       c.wheelSpin += c.speed / 0.34 * dt;
       c.place();
 
-      const d2 = (c.x - px) * (c.x - px) + (c.z - pz) * (c.z - pz);
-      if (d2 < 34 && d2 > 1e-4) {
-        const d = Math.sqrt(d2);
-        player.vel[0] += (px - c.x) / d * 2.6;
-        player.vel[2] += (pz - c.z) / d * 2.6;
-        player.impact = Math.max(player.impact, .35);
-        c.speed *= .5;
+      /* Separation, scaled by how far in they actually are. A flat impulse
+         applied every frame the two overlap does not push them apart — it
+         just pins the player, because the shove repeats before anything has
+         had time to move out of the way. */
+      const sx = px - c.x, sz = pz - c.z;
+      const d2 = sx * sx + sz * sz;
+      if (d2 < 26 && d2 > 1e-4) {
+        const d = Math.sqrt(d2), pen = 5.1 - d;
+        player.vel[0] += sx / d * pen * 0.85;
+        player.vel[2] += sz / d * pen * 0.85;
+        player.impact = Math.max(player.impact, clamp01(pen * 0.30));
+        // and it lifts off rather than being repeatedly halved to a standstill
+        c.speed = Math.min(c.speed, Math.max(4, Math.abs(player.fwdSpeed) * 0.85));
+        c.a -= (sx * -Math.sin(c.a) + sz * Math.cos(c.a)) > 0 ? 0.0004 : -0.0004;
       }
     }
   }
@@ -9305,6 +9312,13 @@ const UNITS = [
   { id: 'ms', label: 'm/s', mul: 1, dist: 1000, distLabel: 'km' },
 ];
 
+/* a distance in whichever units the player picked, for the map and the HUD */
+function fmtDist(metres) {
+  const u = UNITS[clamp((Game.settings.units | 0), 0, UNITS.length - 1)];
+  const d = metres / u.dist;
+  return d < 0.1 ? Math.round(metres) + ' m' : d.toFixed(1) + ' ' + u.distLabel;
+}
+
 /* ============================================================
    FUEL
    ============================================================ */
@@ -9947,7 +9961,9 @@ const Shop = {
     this.cat = this.cat || 'cars';
     this.render();
   },
-  close() { this.el.root.classList.add('hidden'); this.preview(null); },
+  // startMode closes the shop unconditionally, which throws if anything
+  // reaches a mode before init has wired the elements up
+  close() { if (!this.el) return; this.el.root.classList.add('hidden'); this.preview(null); },
 
   /* hovering an item previews its effect on the stat panel */
   preview(ph) { this.previewPh = ph; this.drawStats(); },
@@ -10788,6 +10804,8 @@ const MapView = {
 
   toggle() { this.open ? this.close() : this.show(); },
 
+  invalidate() { this.relief = null; this.buildBlockLookup(); },
+
   show() {
     if (Game.state !== 'play') return;
     this.open = true;
@@ -10803,6 +10821,10 @@ const MapView = {
     $('mapscreen').classList.add('hidden');
   },
 
+  /* the world now extends well past the city, and the map was clamped to
+     the old edge — you could not pan far enough to see the motorway */
+  worldReach() { return (World.ring ? World.ring.R : World.half) + 420; },
+
   fit() {
     const wrap = this.cv.parentElement;
     const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -10811,14 +10833,14 @@ const MapView = {
     this.cv.style.width = wrap.clientWidth + 'px';
     this.cv.style.height = wrap.clientHeight + 'px';
     this.dpr = dpr;
-    this.minZoom = Math.min(this.cv.width, this.cv.height) / (World.size * 1.5);
+    this.minZoom = Math.min(this.cv.width, this.cv.height) / (this.worldReach() * 2.4);
   },
   centre() {
     const p = Game.player;
     this.cx = p.pos[0]; this.cz = p.pos[2];
   },
   clampCentre() {
-    const lim = World.half + 200;
+    const lim = this.worldReach();
     this.cx = clamp(this.cx, -lim, lim);
     this.cz = clamp(this.cz, -lim, lim);
   },
@@ -10835,12 +10857,64 @@ const MapView = {
 
   setWaypointFromScreen(sx, sy) {
     const [x, z] = this.screenToWorld(sx, sy);
-    const lim = World.half + 60;
+    const lim = this.worldReach();
     if (Math.abs(x) > lim || Math.abs(z) > lim) return;
     this.waypoint = { x, z };
     Audio2.ui('ok');
-    Game.toast('Waypoint set', 'good');
+    const d = Math.hypot(x - Game.player.pos[0], z - Game.player.pos[2]);
+    Game.toast('Waypoint set — ' + fmtDist(d), 'good');
     this.draw();
+  },
+
+  /* ---------------- shaded relief ----------------
+     The world has hills in it now, and a flat map of a hilly place tells
+     you nothing about where you are. Built once, off a coarse height grid:
+     a low sun from the north-west, so slopes facing it lighten and the ones
+     away from it fall into shadow. Cheap, and it turns a diagram into
+     something you can read a landscape off. */
+  buildRelief() {
+    const N = 256;
+    const reach = this.worldReach() * 1.22;
+    const step = reach * 2 / N;
+    const H = new Float32Array((N + 1) * (N + 1));
+    let lo = 1e9, hi = -1e9;
+    for (let j = 0; j <= N; j++) {
+      for (let i = 0; i <= N; i++) {
+        const h = Terrain.h(-reach + i * step, -reach + j * step);
+        H[j * (N + 1) + i] = h;
+        if (h < lo) lo = h; if (h > hi) hi = h;
+      }
+    }
+    const cv = document.createElement('canvas');
+    cv.width = N; cv.height = N;
+    const g = cv.getContext('2d');
+    const img = g.createImageData(N, N);
+    const span = Math.max(1, hi - lo);
+    // sun low in the north-west, the convention every paper map uses
+    const lx = -0.55, lz = -0.55, ly = 0.63;
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const a = H[j * (N + 1) + i];
+        const dx = (H[j * (N + 1) + i + 1] - a) / step;
+        const dz = (H[(j + 1) * (N + 1) + i] - a) / step;
+        const il = 1 / Math.hypot(dx, 1, dz);
+        const lam = clamp01((-dx * lx + ly - dz * lz) * il * 1.15);
+        const alt = (a - lo) / span;
+        // height tints the ground, the sun models it
+        const r = 16 + alt * 46, gg = 28 + alt * 54, b = 20 + alt * 38;
+        const k = 0.30 + lam * 1.30;
+        const o = (j * N + i) * 4;
+        img.data[o] = clamp(r * k, 0, 255);
+        img.data[o + 1] = clamp(gg * k, 0, 255);
+        img.data[o + 2] = clamp(b * k, 0, 255);
+        // fade to nothing at the border, so the raster does not read as a
+        // square of land floating in a void when you zoom all the way out
+        const ex = Math.min(i, N - 1 - i) / N, ez = Math.min(j, N - 1 - j) / N;
+        img.data[o + 3] = 255 * smoothstep(0.005, 0.075, Math.min(ex, ez));
+      }
+    }
+    g.putImageData(img, 0, 0);
+    this.relief = cv; this.reliefReach = reach;
   },
 
   /* ---------------- drawing ---------------- */
@@ -10851,15 +10925,16 @@ const MapView = {
 
     c.fillStyle = '#070b12'; c.fillRect(0, 0, W, H);
 
-    // ground beyond the grid
-    const g0 = this.worldToScreen(-half - 260, -half - 260);
-    const g1 = this.worldToScreen(half + 260, half + 260);
-    c.fillStyle = '#0b1410';
-    c.fillRect(g0[0], g0[1], g1[0] - g0[0], g1[1] - g0[1]);
+    // shaded relief, so the hills the world actually has are visible on it
+    if (!this.relief) this.buildRelief();
+    const rr = this.reliefReach;
+    const r0 = this.worldToScreen(-rr, -rr), r1 = this.worldToScreen(rr, rr);
+    c.imageSmoothingEnabled = true;
+    c.drawImage(this.relief, r0[0], r0[1], r1[0] - r0[0], r1[1] - r0[1]);
 
-    // city footprint
+    // city footprint sits on top of it
     const c0 = this.worldToScreen(-half, -half), c1 = this.worldToScreen(half, half);
-    c.fillStyle = '#0d131c';
+    c.fillStyle = 'rgba(13,19,28,.78)';
     c.fillRect(c0[0], c0[1], c1[0] - c0[0], c1[1] - c0[1]);
 
     const TYPE_COL = {
@@ -10920,30 +10995,81 @@ const MapView = {
       c.setLineDash([]);
     }
 
-    // ring motorway, slip roads and roundabouts
+    /* motorway, connectors, junctions. Drawn the way a road atlas draws
+       them: a casing underneath and a lighter fill on top, so a road reads
+       as a road and crossings read as crossings. */
     if (World.ring) {
       const RR = World.ring.R, GAP = World.ring.GAP, CW = World.ring.CW;
-      c.strokeStyle = '#1d2a38';
-      c.lineWidth = Math.max(2, (GAP + CW * 2 + 6) * z);
-      c.beginPath();
       const o = this.worldToScreen(0, 0);
-      c.arc(o[0], o[1], RR * z, 0, TAU);
-      c.stroke();
-      c.strokeStyle = 'rgba(150,190,225,.30)';
-      c.lineWidth = Math.max(1, 1.4 * this.dpr);
-      c.beginPath(); c.arc(o[0], o[1], RR * z, 0, TAU); c.stroke();
+      const road = (wide, cas, fill) => {
+        c.lineCap = 'round'; c.lineJoin = 'round';
+        c.strokeStyle = cas; c.lineWidth = Math.max(2.4, (wide + 5) * z); c.stroke();
+        c.strokeStyle = fill; c.lineWidth = Math.max(1.4, wide * z); c.stroke();
+      };
+      // connectors, city out to the junction
+      for (const rb of (World.roundabouts || [])) {
+        const a = Math.atan2(rb.z, rb.x);
+        const p0 = this.worldToScreen(Math.cos(a) * (World.half + 8), Math.sin(a) * (World.half + 8));
+        const p1 = this.worldToScreen(Math.cos(a) * (RR + 126), Math.sin(a) * (RR + 126));
+        c.beginPath(); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]);
+        road(15, '#0a1018', '#33445a');
+      }
+      // the ring itself
+      c.beginPath(); c.arc(o[0], o[1], RR * z, 0, TAU);
+      road(GAP + CW * 2, '#0a1018', '#3d5474');
+      // central reservation, the giveaway that it is a dual carriageway
+      c.beginPath(); c.arc(o[0], o[1], RR * z, 0, TAU);
+      c.strokeStyle = 'rgba(10,16,24,.85)'; c.lineWidth = Math.max(.8, GAP * .7 * z); c.stroke();
+
       for (const rb of (World.roundabouts || [])) {
         const q = this.worldToScreen(rb.x, rb.z);
-        c.strokeStyle = '#1d2a38'; c.lineWidth = Math.max(2, 9 * z);
-        c.beginPath(); c.arc(q[0], q[1], (rb.r - 4) * z, 0, TAU); c.stroke();
-        c.fillStyle = '#24402c';
-        c.beginPath(); c.arc(q[0], q[1], (rb.r - 9) * z, 0, TAU); c.fill();
-        // the slip road running in to the city
-        const a = Math.atan2(rb.z, rb.x);
-        const p0 = this.worldToScreen(Math.cos(a) * (World.half + 10), Math.sin(a) * (World.half + 10));
-        const p1 = this.worldToScreen(Math.cos(a) * (RR - 12), Math.sin(a) * (RR - 12));
-        c.strokeStyle = '#1d2a38'; c.lineWidth = Math.max(2, 15 * z);
-        c.beginPath(); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); c.stroke();
+        c.beginPath(); c.arc(q[0], q[1], (rb.r - 4.4) * z, 0, TAU);
+        road(9, '#0a1018', '#33445a');
+        c.fillStyle = '#22402b';
+        c.beginPath(); c.arc(q[0], q[1], (rb.r - 9.5) * z, 0, TAU); c.fill();
+      }
+
+      // ramps: the same beziers the world was built from
+      c.strokeStyle = '#2b3a4e'; c.lineWidth = Math.max(1.2, 7 * z);
+      for (const b of (World.bridges || [])) {
+        const a = b.a, ca = Math.cos(a), sa = Math.sin(a);
+        const rIn = RR - (GAP * .5 + CW * .5), rOut = RR + (GAP * .5 + CW * .5);
+        for (const rp of [[rIn, -1, -1, RR - 82], [rIn, -1, 1, RR - 82],
+        [rOut, 1, 1, RR + 82], [rOut, 1, -1, RR + 82]]) {
+          const [rc, si, ts, rj] = rp;
+          const ang0 = a + ts * (168 / rc), rE = rc + si * (CW * .5 + 2.8);
+          const P0 = [Math.cos(ang0) * rE, Math.sin(ang0) * rE];
+          const T0 = [-Math.sin(ang0) * ts, Math.cos(ang0) * ts];
+          const P3 = [ca * rj, sa * rj];
+          const out = rj > RR ? 1 : -1, T3 = [ca * out, sa * out];
+          c.beginPath();
+          for (let k = 0; k <= 12; k++) {
+            const t = k / 12, u = 1 - t;
+            const b0 = u * u * u, b1 = 3 * u * u * t, b2 = 3 * u * t * t, b3 = t * t * t;
+            const x = P0[0] * b0 + (P0[0] + T0[0] * 74) * b1 + (P3[0] - T3[0] * 66) * b2 + P3[0] * b3;
+            const y = P0[1] * b0 + (P0[1] + T0[1] * 74) * b1 + (P3[1] - T3[1] * 66) * b2 + P3[1] * b3;
+            const q2 = this.worldToScreen(x, y);
+            k ? c.lineTo(q2[0], q2[1]) : c.moveTo(q2[0], q2[1]);
+          }
+          c.stroke();
+        }
+        /* the crossing, drawn the way an atlas draws one: the deck carried
+           through unbroken, with a parapet tick either side of it, so it is
+           obvious at a glance which road goes over and which goes under */
+        const s0 = this.worldToScreen(ca * (RR - 36), sa * (RR - 36));
+        const s1 = this.worldToScreen(ca * (RR + 36), sa * (RR + 36));
+        c.beginPath(); c.moveTo(s0[0], s0[1]); c.lineTo(s1[0], s1[1]);
+        c.strokeStyle = '#070c14'; c.lineWidth = Math.max(3.4, 25 * z); c.stroke();
+        c.strokeStyle = '#6d86a6'; c.lineWidth = Math.max(2.0, 17 * z); c.stroke();
+        const nx = -sa, nz = ca, hw = Math.max(2.6, 11 * z);
+        c.strokeStyle = 'rgba(215,232,250,.85)';
+        c.lineWidth = Math.max(1, 1.5 * this.dpr);
+        for (const sgn of [-1, 1]) {
+          c.beginPath();
+          c.moveTo(s0[0] + nx * hw * sgn, s0[1] + nz * hw * sgn);
+          c.lineTo(s1[0] + nx * hw * sgn, s1[1] + nz * hw * sgn);
+          c.stroke();
+        }
       }
     }
 
@@ -10993,6 +11119,57 @@ const MapView = {
       c.stroke(); c.shadowBlur = 0;
     }
 
+    /* Petrol stations, with how far away each one is. This is the whole
+       reason the map has a fuel gauge next to it — a station you cannot
+       find is not a station. The nearest is called out by name. */
+    const px0 = Game.player.pos[0], pz0 = Game.player.pos[2];
+    let near = null, nearD = 1e9;
+    for (const st of Stations.list) {
+      const d = Math.hypot(st.x - px0, st.z - pz0);
+      if (d < nearD) { nearD = d; near = st; }
+    }
+    for (const st of Stations.list) {
+      const q = this.worldToScreen(st.x, st.z);
+      if (q[0] < -40 || q[1] < -40 || q[0] > W + 40 || q[1] > H + 40) continue;
+      const d = Math.hypot(st.x - px0, st.z - pz0);
+      const isNear = st === near;
+      const rad = (isNear ? 9 : 7) * this.dpr;
+      c.beginPath(); c.arc(q[0], q[1], rad, 0, TAU);
+      c.fillStyle = isNear ? '#7cf37c' : 'rgba(96,196,110,.85)';
+      c.shadowColor = '#7cf37c'; c.shadowBlur = (isNear ? 12 : 5) * this.dpr;
+      c.fill(); c.shadowBlur = 0;
+      // a pump, drawn small
+      c.strokeStyle = '#08140b'; c.lineWidth = 1.6 * this.dpr;
+      c.beginPath();
+      c.moveTo(q[0] - rad * .30, q[1] + rad * .44); c.lineTo(q[0] - rad * .30, q[1] - rad * .44);
+      c.lineTo(q[0] + rad * .12, q[1] - rad * .44); c.lineTo(q[0] + rad * .12, q[1] + rad * .44);
+      c.moveTo(q[0] + rad * .12, q[1] - rad * .10); c.lineTo(q[0] + rad * .46, q[1] - rad * .10);
+      c.lineTo(q[0] + rad * .46, q[1] + rad * .30);
+      c.stroke();
+      if (z > 0.16 || isNear) {
+        c.font = (isNear ? 700 : 400) + ' ' + (11 * this.dpr) + 'px Rajdhani, sans-serif';
+        c.textAlign = 'center';
+        const label = fmtDist(d) + (isNear ? '  ' + st.name : '');
+        c.fillStyle = 'rgba(4,8,12,.72)';
+        const tw = c.measureText(label).width;
+        c.fillRect(q[0] - tw / 2 - 4 * this.dpr, q[1] + rad + 2 * this.dpr,
+          tw + 8 * this.dpr, 15 * this.dpr);
+        c.fillStyle = isNear ? '#9dffa4' : 'rgba(160,220,170,.8)';
+        c.fillText(label, q[0], q[1] + rad + 13 * this.dpr);
+        c.textAlign = 'left';
+      }
+    }
+
+    // junctions, so the crossings are findable rather than merely present
+    for (const b of (World.bridges || [])) {
+      const q = this.worldToScreen(b.x, b.z);
+      if (q[0] < -30 || q[1] < -30 || q[0] > W + 30 || q[1] > H + 30) continue;
+      c.strokeStyle = 'rgba(190,215,240,.55)'; c.lineWidth = 1.6 * this.dpr;
+      c.beginPath(); c.arc(q[0], q[1], 7 * this.dpr, 0, TAU); c.stroke();
+      c.fillStyle = 'rgba(190,215,240,.55)';
+      c.beginPath(); c.arc(q[0], q[1], 2.2 * this.dpr, 0, TAU); c.fill();
+    }
+
     // waypoint
     if (this.waypoint) this.pin(c, this.worldToScreen(this.waypoint.x, this.waypoint.z), '#ffcf6b');
 
@@ -11023,6 +11200,31 @@ const MapView = {
     c.fillStyle = 'rgba(220,235,250,.75)';
     c.font = (11 * this.dpr) + 'px Rajdhani, sans-serif';
     c.fillText(barM + ' m', bx0 + barPx + 7 * this.dpr, by0);
+
+    // north, because a map you can rotate the world under needs one
+    const nx = W - 30 * this.dpr, ny = 34 * this.dpr, ns = 13 * this.dpr;
+    c.beginPath();
+    c.moveTo(nx, ny - ns); c.lineTo(nx + ns * .5, ny + ns * .55);
+    c.lineTo(nx, ny + ns * .2); c.lineTo(nx - ns * .5, ny + ns * .55);
+    c.closePath();
+    c.fillStyle = 'rgba(220,235,250,.82)'; c.fill();
+    c.font = '700 ' + (11 * this.dpr) + 'px Rajdhani, sans-serif';
+    c.textAlign = 'center';
+    c.fillText('N', nx, ny - ns - 4 * this.dpr);
+    c.textAlign = 'left';
+
+    // distance and heading to the waypoint, so setting one means something
+    if (this.waypoint) {
+      const dx = this.waypoint.x - Game.player.pos[0];
+      const dz = this.waypoint.z - Game.player.pos[2];
+      const txt = 'Waypoint  ' + fmtDist(Math.hypot(dx, dz));
+      c.font = '700 ' + (13 * this.dpr) + 'px Rajdhani, sans-serif';
+      const tw = c.measureText(txt).width;
+      c.fillStyle = 'rgba(6,10,16,.72)';
+      c.fillRect(bx0 - 4 * this.dpr, by0 - 42 * this.dpr, tw + 14 * this.dpr, 20 * this.dpr);
+      c.fillStyle = '#ffcf6b';
+      c.fillText(txt, bx0 + 3 * this.dpr, by0 - 28 * this.dpr);
+    }
   },
 
   pin(c, p, col) {

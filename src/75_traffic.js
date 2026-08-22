@@ -185,13 +185,20 @@ const RingTraffic = {
       c.wheelSpin += c.speed / 0.34 * dt;
       c.place();
 
-      const d2 = (c.x - px) * (c.x - px) + (c.z - pz) * (c.z - pz);
-      if (d2 < 34 && d2 > 1e-4) {
-        const d = Math.sqrt(d2);
-        player.vel[0] += (px - c.x) / d * 2.6;
-        player.vel[2] += (pz - c.z) / d * 2.6;
-        player.impact = Math.max(player.impact, .35);
-        c.speed *= .5;
+      /* Separation, scaled by how far in they actually are. A flat impulse
+         applied every frame the two overlap does not push them apart — it
+         just pins the player, because the shove repeats before anything has
+         had time to move out of the way. */
+      const sx = px - c.x, sz = pz - c.z;
+      const d2 = sx * sx + sz * sz;
+      if (d2 < 26 && d2 > 1e-4) {
+        const d = Math.sqrt(d2), pen = 5.1 - d;
+        player.vel[0] += sx / d * pen * 0.85;
+        player.vel[2] += sz / d * pen * 0.85;
+        player.impact = Math.max(player.impact, clamp01(pen * 0.30));
+        // and it lifts off rather than being repeatedly halved to a standstill
+        c.speed = Math.min(c.speed, Math.max(4, Math.abs(player.fwdSpeed) * 0.85));
+        c.a -= (sx * -Math.sin(c.a) + sz * Math.cos(c.a)) > 0 ? 0.0004 : -0.0004;
       }
     }
   }
