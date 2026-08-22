@@ -65,6 +65,186 @@ class TrafficCar {
   }
 }
 
+/* ============================================================
+   Motorway and roundabout traffic
+
+   City agents navigate a grid of intersections, which the ring road is
+   not — it is one continuous curve carrying two carriageways. So these
+   run on their own model: an angle around the ring, a carriageway, and
+   a lane within it. Overtaking is the part worth having. A car that
+   catches something slower checks whether the lane beside it is clear,
+   pulls out if it is, and drifts back once it is past, which is what
+   makes a motorway look alive instead of like a conveyor belt.
+   ============================================================ */
+class RingCar {
+  constructor(model, a, dir, lane, rnd) {
+    this.model = model;
+    this.a = a;              // angle around the ring
+    this.dir = dir;          // +1 anticlockwise, -1 clockwise
+    this.lane = lane;        // 0 nearside, 1 offside
+    this.laneF = lane;       // smoothed, so a lane change is a manoeuvre
+    this.cruise = 27 + rnd() * 12;
+    this.speed = this.cruise;
+    this.brake = 0;
+    this.wheelSpin = 0;
+    this.color = null;
+    this.hold = 0;           // seconds still committed to the current lane
+    this.x = 0; this.z = 0; this.y = 0; this.yaw = 0;
+    this.place();
+  }
+  /* two carriageways either side of the reservation; the offside lane is
+     the one nearer the middle of the road */
+  radius() {
+    const R = Terrain.ringR, ring = World.ring;
+    const side = this.dir > 0 ? 1 : -1;
+    const base = R + side * (ring.GAP * .5 + ring.CW * .5);
+    return base - side * (this.laneF - .5) * (ring.CW * .46);
+  }
+  place() {
+    const r = this.radius();
+    this.x = Math.cos(this.a) * r;
+    this.z = Math.sin(this.a) * r;
+    this.y = Terrain.h(this.x, this.z);
+    this.yaw = Math.atan2(-Math.sin(this.a) * this.dir, Math.cos(this.a) * this.dir);
+  }
+}
+
+const RingTraffic = {
+  cars: [], rnd: mulberry32(5519),
+  populate(n) {
+    this.cars.length = 0;
+    if (!World.ring || !Traffic.models.length) return;
+    const rnd = this.rnd;
+    for (let k = 0; k < n; k++) {
+      const c = new RingCar((rnd() * Traffic.models.length) | 0,
+        rnd() * TAU, k % 2 ? 1 : -1, rnd() < .32 ? 1 : 0, rnd);
+      c.color = TRAFFIC_COLORS[(rnd() * TRAFFIC_COLORS.length) | 0];
+      this.cars.push(c);
+    }
+  },
+  /* keep them near the player rather than spread evenly round a ring most
+     of which nobody can see */
+  recycle(c, px, pz) {
+    const rnd = this.rnd, R = Terrain.ringR;
+    const span = 900 / R;
+    c.a = Math.atan2(pz, px) + (rnd() * 2 - 1) * span;
+    c.lane = rnd() < .32 ? 1 : 0; c.laneF = c.lane;
+    c.speed = c.cruise = 27 + rnd() * 12;
+    c.hold = 0;
+    c.place();
+  },
+  update(dt, player) {
+    if (!this.cars.length) return;
+    const R = Terrain.ringR;
+    const px = player.pos[0], pz = player.pos[2];
+    const cars = this.cars;
+    const pr = Math.hypot(px, pz);
+    const pa = Math.atan2(pz, px);
+    for (let i = 0; i < cars.length; i++) {
+      const c = cars[i];
+      const ddx = c.x - px, ddz = c.z - pz;
+      if (ddx * ddx + ddz * ddz > 620 * 620) { this.recycle(c, px, pz); continue; }
+
+      // distance to the next car ahead in this lane, and clearance in the other
+      let gapOwn = 1e9, gapNext = 1e9, aheadSpeed = c.cruise;
+      for (let k = 0; k < cars.length; k++) {
+        if (k === i) continue;
+        const o = cars[k];
+        if (o.dir !== c.dir) continue;
+        const da = wrapPi(o.a - c.a) * c.dir * R;      // metres ahead, signed
+        if (da < -20 || da > 280) continue;
+        if (o.lane === c.lane) { if (da > 0 && da < gapOwn) { gapOwn = da; aheadSpeed = o.speed; } }
+        else if (Math.abs(da) < gapNext) gapNext = Math.abs(da);
+      }
+      // the player is traffic too
+      if (Math.abs(pr - R) < 26) {
+        const da = wrapPi(pa - c.a) * c.dir * R;
+        if (da > 0 && da < gapOwn && Math.abs(pr - c.radius()) < 4.5) {
+          gapOwn = da; aheadSpeed = Math.max(0, player.fwdSpeed);
+        }
+      }
+
+      c.hold = Math.max(0, c.hold - dt);
+      if (c.hold <= 0) {
+        if (c.lane === 0 && gapOwn < 62 && aheadSpeed < c.cruise - 2.2 && gapNext > 78) {
+          c.lane = 1; c.hold = 3.2;                      // pull out
+        } else if (c.lane === 1 && gapOwn > 130 && gapNext > 60) {
+          c.lane = 0; c.hold = 3.6;                      // and back in
+        }
+      }
+      c.laneF = damp(c.laneF, c.lane, 1.7, dt);
+
+      let target = c.cruise;
+      if (gapOwn < 90) target = Math.min(target, aheadSpeed * (0.55 + 0.45 * clamp01(gapOwn / 90)));
+      if (gapOwn < 16) target = Math.min(target, aheadSpeed * 0.4);
+      c.brake = clamp01((c.speed - target) / 9);
+      c.speed = damp(c.speed, Math.max(target, 0), c.brake > .05 ? 2.6 : 1.1, dt);
+
+      c.a += (c.speed / c.radius()) * c.dir * dt;
+      if (c.a > PI) c.a -= TAU; else if (c.a < -PI) c.a += TAU;
+      c.wheelSpin += c.speed / 0.34 * dt;
+      c.place();
+
+      const d2 = (c.x - px) * (c.x - px) + (c.z - pz) * (c.z - pz);
+      if (d2 < 34 && d2 > 1e-4) {
+        const d = Math.sqrt(d2);
+        player.vel[0] += (px - c.x) / d * 2.6;
+        player.vel[2] += (pz - c.z) / d * 2.6;
+        player.impact = Math.max(player.impact, .35);
+        c.speed *= .5;
+      }
+    }
+  }
+};
+
+/* cars circulating the four roundabouts, which otherwise sat empty */
+const RoundaboutTraffic = {
+  cars: [], rnd: mulberry32(3313),
+  populate(perIsland) {
+    this.cars.length = 0;
+    if (!Traffic.models.length) return;
+    const rnd = this.rnd;
+    for (const rb of (World.roundabouts || [])) {
+      const n = 1 + ((rnd() * perIsland) | 0);
+      for (let k = 0; k < n; k++) {
+        this.cars.push({
+          rb, a: rnd() * TAU, speed: 7 + rnd() * 4, brake: 0, wheelSpin: 0,
+          model: (rnd() * Traffic.models.length) | 0,
+          color: TRAFFIC_COLORS[(rnd() * TRAFFIC_COLORS.length) | 0],
+          x: 0, z: 0, y: 0, yaw: 0
+        });
+      }
+    }
+    for (const c of this.cars) this.place(c);
+  },
+  place(c) {
+    const r = c.rb.r - 4.4;
+    c.x = c.rb.x + Math.cos(c.a) * r;
+    c.z = c.rb.z + Math.sin(c.a) * r;
+    c.y = Terrain.h(c.x, c.z);
+    c.yaw = Math.atan2(-Math.sin(c.a), Math.cos(c.a));
+  },
+  update(dt, player) {
+    const px = player.pos[0], pz = player.pos[2];
+    for (const c of this.cars) {
+      const rdx = c.rb.x - px, rdz = c.rb.z - pz;
+      if (rdx * rdx + rdz * rdz > 480 * 480) continue;
+      // give way to the player when they are on the island just ahead
+      let brake = 0;
+      const d = Math.hypot(px - c.rb.x, pz - c.rb.z);
+      if (Math.abs(d - (c.rb.r - 4.4)) < 7) {
+        const da = wrapPi(Math.atan2(pz - c.rb.z, px - c.rb.x) - c.a);
+        if (da > 0.02 && da < 0.75) brake = 1;
+      }
+      c.brake = brake;
+      c.speed = damp(c.speed, brake ? 0 : 7 + (c.rb.r - 20) * .2, brake ? 4 : 1.4, dt);
+      c.a += c.speed / (c.rb.r - 4.4) * dt;
+      c.wheelSpin += c.speed / 0.34 * dt;
+      this.place(c);
+    }
+  }
+};
+
 const Traffic = {
   cars: [], parked: [], models: [], rnd: mulberry32(7771),
   count: 0,
@@ -84,6 +264,7 @@ const Traffic = {
       c.t = rnd();
       const dx = c.tx - c.px, dz = c.tz - c.pz;
       c.x = c.px + dx * c.t; c.z = c.pz + dz * c.t;
+      c.y = Terrain.h(c.x, c.z);
       c.yaw = Math.atan2(dx, dz);
       c.color = TRAFFIC_COLORS[(rnd() * TRAFFIC_COLORS.length) | 0];
       this.cars.push(c);
@@ -94,7 +275,7 @@ const Traffic = {
     this.parked.length = 0;
     const rnd = mulberry32(4242);
     for (const p of (World._lotCars || [])) {
-      this.parked.push({ x: p.x, z: p.z, yaw: p.yaw, model: (rnd() * this.models.length) | 0, color: TRAFFIC_COLORS[(rnd() * TRAFFIC_COLORS.length) | 0] });
+      this.parked.push({ x: p.x, z: p.z, y: Terrain.h(p.x, p.z), yaw: p.yaw, model: (rnd() * this.models.length) | 0, color: TRAFFIC_COLORS[(rnd() * TRAFFIC_COLORS.length) | 0] });
     }
     // street parking along block edges
     const N = World.N, C = World.CELL, R = World.ROAD, half = World.half;
@@ -111,7 +292,7 @@ const Traffic = {
         else if (side === 1) { x = bx + off; z = bz - e; yaw = rnd() < .5 ? 0 : PI; }
         else if (side === 2) { x = bx + e; z = bz + off; yaw = PI * .5; }
         else { x = bx - e; z = bz + off; yaw = -PI * .5; }
-        this.parked.push({ x, z, yaw, model: (rnd() * this.models.length) | 0, color: TRAFFIC_COLORS[(rnd() * TRAFFIC_COLORS.length) | 0] });
+        this.parked.push({ x, z, y: Terrain.h(x, z), yaw, model: (rnd() * this.models.length) | 0, color: TRAFFIC_COLORS[(rnd() * TRAFFIC_COLORS.length) | 0] });
       }
     }
   },
@@ -128,6 +309,7 @@ const Traffic = {
       c.setNodeTargets(rnd);
       const t = rnd();
       c.x = c.px + (c.tx - c.px) * t; c.z = c.pz + (c.tz - c.pz) * t;
+      c.y = Terrain.h(c.x, c.z);
       c.yaw = Math.atan2(c.tx - c.px, c.tz - c.pz);
       c.speed = c.targetSpeed * (.6 + rnd() * .4);
       return;
@@ -136,6 +318,8 @@ const Traffic = {
   clock: 0,
   update(dt, player) {
     this.clock += dt;
+    RingTraffic.update(dt, player);
+    RoundaboutTraffic.update(dt, player);
     const rnd = this.rnd;
     const px = player.pos[0], pz = player.pos[2];
     for (let ci = 0; ci < this.cars.length; ci++) {
@@ -196,6 +380,9 @@ const Traffic = {
       c.speed = damp(c.speed, Math.max(tgt, 0), brake > 0.05 ? 4.5 : 1.6, step);
       c.x += fx * c.speed * step;
       c.z += fz * c.speed * step;
+      // the city sits on a height field now, so a car pinned to y = 0 spends
+      // half the map buried and the other half hovering over it
+      c.y = Terrain.h(c.x, c.z);
       c.wheelSpin += c.speed / 0.33 * step;
 
       if (dist < 4.0) c.advance(rnd);

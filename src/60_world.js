@@ -33,17 +33,108 @@ World.isOnBlock = function (x, z) {
   const m = (C - B) * .5;   // = ROAD/2 + ... offset from cell edge to block edge
   return lx > m && lx < C - m && lz > m && lz < C - m;
 };
-World.groundY = function (x, z) {
-  return Terrain.h(x, z) + (this.isOnBlock(x, z) ? this.CURB : 0);
+/* --------- bridge decks ---------
+   A deck is a straight run of road surface held at an absolute height
+   rather than laid on the terrain: one span of a bridge, or one link in
+   a curving ramp. Terrain alone cannot express this, because a height
+   field has exactly one surface per point and a bridge is the case where
+   there are two — the deck, and the ground you can also drive on beneath
+   it. So the ground query takes the height the wheel is currently at and
+   answers with whichever surface that wheel is actually riding on. */
+World.decks = [];
+World.deckGrid = null;
+World.deckCell = 48;
+
+World.addDeck = function (x0, z0, y0, x1, z1, y1, hw) {
+  const dx = x1 - x0, dz = z1 - z0;
+  const len2 = dx * dx + dz * dz;
+  if (len2 < 1e-6) return null;
+  const d = {
+    x0, z0, y0, x1, z1, y1, hw, dx, dz, len2,
+    minx: Math.min(x0, x1) - hw, maxx: Math.max(x0, x1) + hw,
+    minz: Math.min(z0, z1) - hw, maxz: Math.max(z0, z1) + hw
+  };
+  this.decks.push(d);
+  return d;
 };
-World.groundNormal = function (x, z, out) {
+
+/* bucket the decks so a wheel query is a handful of tests, not a scan of
+   every span in the world */
+World.indexDecks = function () {
+  const cs = this.deckCell;
+  let mnx = 1e9, mnz = 1e9, mxx = -1e9, mxz = -1e9;
+  for (const d of this.decks) {
+    mnx = Math.min(mnx, d.minx); mxx = Math.max(mxx, d.maxx);
+    mnz = Math.min(mnz, d.minz); mxz = Math.max(mxz, d.maxz);
+  }
+  if (!this.decks.length) { this.deckGrid = null; return; }
+  const ox = Math.floor(mnx / cs) - 1, oz = Math.floor(mnz / cs) - 1;
+  const nx = Math.ceil(mxx / cs) - ox + 2, nz = Math.ceil(mxz / cs) - oz + 2;
+  const g = new Array(nx * nz);
+  for (let k = 0; k < g.length; k++) g[k] = null;
+  for (const d of this.decks) {
+    const i0 = Math.floor(d.minx / cs) - ox, i1 = Math.floor(d.maxx / cs) - ox;
+    const j0 = Math.floor(d.minz / cs) - oz, j1 = Math.floor(d.maxz / cs) - oz;
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      if (i < 0 || j < 0 || i >= nx || j >= nz) continue;
+      const k = j * nx + i;
+      (g[k] || (g[k] = [])).push(d);
+    }
+  }
+  this.deckGrid = { g, nx, nz, ox, oz, cs };
+};
+
+/* height of the deck surface at (x,z) nearest below yRef, or null */
+World.deckY = function (x, z, yRef) {
+  const G = this.deckGrid;
+  if (!G) return null;
+  const i = Math.floor(x / G.cs) - G.ox, j = Math.floor(z / G.cs) - G.oz;
+  if (i < 0 || j < 0 || i >= G.nx || j >= G.nz) return null;
+  const cell = G.g[j * G.nx + i];
+  if (!cell) return null;
+  let best = null;
+  for (let k = 0; k < cell.length; k++) {
+    const d = cell[k];
+    if (x < d.minx || x > d.maxx || z < d.minz || z > d.maxz) continue;
+    const t = ((x - d.x0) * d.dx + (z - d.z0) * d.dz) / d.len2;
+    if (t < 0 || t > 1) continue;
+    const px = d.x0 + d.dx * t, pz = d.z0 + d.dz * t;
+    const px2 = x - px, pz2 = z - pz;
+    if (px2 * px2 + pz2 * pz2 > d.hw * d.hw) continue;
+    const y = d.y0 + (d.y1 - d.y0) * t;
+    // a wheel under a bridge must not be picked up by it
+    if (yRef !== undefined && y > yRef + 1.2) continue;
+    if (best === null || y > best.y) best = { y, d };
+  }
+  return best;
+};
+
+World.groundY = function (x, z, yRef) {
+  const g = Terrain.h(x, z) + (this.isOnBlock(x, z) ? this.CURB : 0);
+  const d = this.deckY(x, z, yRef);
+  return d && d.y > g ? d.y : g;
+};
+World.groundNormal = function (x, z, out, yRef) {
+  const d = yRef === undefined ? null : this.deckY(x, z, yRef);
+  if (d && d.y > Terrain.h(x, z) + (this.isOnBlock(x, z) ? this.CURB : 0)) {
+    // a deck is a plane: its slope runs along the span and nowhere across it
+    const s = d.d, len = Math.sqrt(s.len2);
+    const grade = (s.y1 - s.y0) / len;
+    const gx = grade * (s.dx / len), gz = grade * (s.dz / len);
+    const l = Math.hypot(gx, 1, gz) || 1;
+    out[0] = -gx / l; out[1] = 1 / l; out[2] = -gz / l;
+    return out;
+  }
   Terrain.normal(x, z, out);
   return out;
 };
 
 /* --------- collider grid --------- */
-World.addCollider = function (x0, z0, x1, z1, y) {
-  const c = { x0, z0, x1, z1, y };
+/* y is the top of the obstacle — you may drive over it if you are above.
+   y0 is the underside, so a bridge parapet stops you on the deck without
+   also being a wall for anything passing underneath. */
+World.addCollider = function (x0, z0, x1, z1, y, y0) {
+  const c = { x0, z0, x1, z1, y, y0 };
   this.colliders.push(c);
   const g = this.grid, n = this.gridN, cs = this.gridCell, h = this.half;
   const i0 = clamp(Math.floor((x0 + h) / cs), 0, n - 1), i1 = clamp(Math.floor((x1 + h) / cs), 0, n - 1);
@@ -89,13 +180,16 @@ World.build = function (opts) {
   this.chunks.length = 0; this.trees.length = 0; this.blockInfo.length = 0;
   this._lotCars = []; this._forceChunk = null; this.signals.length = 0;
 
-  Terrain.build({ N, CELL: C, half, seed: opts.seed || 20260817, ringR: half + 210 });
+  // clear of the city's diagonal corners, which sit at half * sqrt(2)
+  Terrain.build({ N, CELL: C, half, seed: opts.seed || 20260817, ringR: half * 1.52 });
   const rnd = mulberry32(opts.seed || 20260817);
   // the chunk grid has to reach past the city to cover the ring motorway,
   // otherwise everything out there lands in an edge chunk and gets culled wrong
   const CH = this.chunkCells;
   const CHUNK = C * CH;
-  const span = this.chunkSpan = Math.ceil((half + 340) / CHUNK) * CHUNK;
+  // out to the far end of the junction stubs, or their geometry lands in the
+  // wrong chunk and pops in and out with the culling
+  const span = this.chunkSpan = Math.ceil((Terrain.ringR + 180) / CHUNK) * CHUNK;
   const nch = Math.round((span * 2) / CHUNK);
   this.nch = nch;
   const chunkAt = (x, z) => {
@@ -143,7 +237,28 @@ World.build = function (opts) {
     a.push(col[0], col[1], col[2], rough, metal, emis, mat, seed === undefined ? 0 : seed);
     ch.count++;
   }
+  /* Bridges are the one thing that is not laid on the ground, so they need
+     an absolute height and a slope of their own rather than the terrain's. */
+  function boxAt(x, yAbs, z, sx, sy, sz, ry, grade, col, rough, metal, emis, mat, seed) {
+    const ch = World._forceChunk || chunkAt(x, z);
+    if (grade) M4.trsTilt(tmpM, x, yAbs, z, ry || 0,
+      grade * Math.sin(ry || 0), grade * Math.cos(ry || 0), sx, sy, sz);
+    else M4.trs(tmpM, x, yAbs, z, ry || 0, sx, sy, sz);
+    const a = ch.tmp.box;
+    for (let k = 0; k < 16; k++) a.push(tmpM[k]);
+    a.push(col[0], col[1], col[2], rough, metal, emis, mat, seed === undefined ? 0 : seed);
+    ch.count++;
+  }
+  function cylAt(x, yAbs, z, r, h, col, rough, metal, emis, mat, seed, ry) {
+    const ch = World._forceChunk || chunkAt(x, z);
+    M4.trs(tmpM, x, yAbs, z, ry || 0, r * 2, h, r * 2);
+    const a = ch.tmp.cyl;
+    for (let k = 0; k < 16; k++) a.push(tmpM[k]);
+    a.push(col[0], col[1], col[2], rough, metal, emis, mat, seed === undefined ? 0 : seed);
+    ch.count++;
+  }
   World._box = box; World._cyl = cyl; World._sph = sph;
+  World._boxAt = boxAt; World._cylAt = cylAt; World._chunkAt = chunkAt;
 
   const GREY = [.5, .5, .5], DARK = [.09, .095, .10], WHITE = [.88, .88, .86];
 
@@ -798,9 +913,12 @@ World._highway = function (rnd) {
   this.roundabouts = [];
   for (const a of dirs) {
     const ca = Math.cos(a), sa = Math.sin(a);
-    const rIn = this.half + 12, rOut = R - (GAP * .5 + CW + 4);
-    const rRnd = (rIn + rOut) * .5;
+    const rIn = this.half + 12;
     const RR = 26;                          // roundabout outer radius
+    // the roundabout sits close to the city so the run out to the motorway is
+    // long enough to climb to bridge height at a grade you can actually drive
+    const rRnd = rIn + 52;
+    const rOut = R - 30;                    // the near abutment
     // connector, split either side of the roundabout
     const stretch = (r0, r1) => {
       const n = Math.max(2, Math.round((r1 - r0) / 26));
@@ -813,7 +931,8 @@ World._highway = function (rnd) {
       }
     };
     stretch(rIn, rRnd - RR);
-    stretch(rRnd + RR, rOut);
+    // only up to the foot of the approach; from there the interchange owns it
+    stretch(rRnd + RR, R - 126);
 
     // the roundabout itself
     const cx = ca * rRnd, cz = sa * rRnd;
@@ -845,14 +964,26 @@ World._highway = function (rnd) {
     this.roundabouts.push({ x: cx, z: cz, r: RR });
     this.lights.push({ p: [cx, Terrain.h(cx, cz) + 7, cz], col: [1, .9, .7], rad: 40, kind: 'sign' });
   }
+
+  /* grade-separated junctions where those connectors meet the motorway,
+     and viaducts wherever the ring crosses a valley */
+  this.bridges = [];
+  for (const a of dirs) this._interchange(a, rnd);
+  this._viaducts(rnd);
+  this.indexDecks();
 };
 
 /* ---------- outskirts: ground plane, distant skyline, hills ---------- */
 World._outskirts = function (rnd) {
   const half = this.half;
   const far = half + 1400;
-  // ground
-  this._box(0, -.06, 0, far * 2, .1, far * 2, 0, [.085, .095, .075], .95, 0, 0, M_GRASS, 0);
+  /* A backstop for the far horizon only. It used to sit at ground level,
+     where it was a single flat plane the size of the world slicing straight
+     through every hill and valley the terrain mesh had gone to the trouble of
+     making — the bright green field visible everywhere the real ground
+     happened to be lower. Sunk well below anything the mesh covers, it now
+     only shows past the edge of the mesh, which is all it was ever for. */
+  this._box(0, -150, 0, far * 2.6, 8, far * 2.6, 0, [.085, .095, .075], .95, 0, 0, M_GRASS, 0);
 
   /* woodland, scrub and boulders across the countryside */
   {
@@ -889,16 +1020,21 @@ World._outskirts = function (rnd) {
     }
   }
 
-  // distant skyline
+  /* Distant skyline. These were scattered from just outside the city out to
+     1750 m, which put a field of office towers across the open countryside
+     and straight over the motorway — they are meant to read as another city
+     on the horizon, so they now start well beyond the ring. Their bases are
+     sunk, because out there the ground mesh is sampled far too coarsely to
+     stand anything on it exactly and a floating tower is worse than a
+     slightly buried one. */
   for (let k = 0; k < 260; k++) {
     const a = rnd() * TAU;
-    const d = half + 160 + rnd() * 950;
-    // keep the skyline clear of the motorway corridor, it was being built on top of it
-    if (Math.abs(d - Terrain.ringR) < 110) continue;
+    const d = Terrain.ringR + 760 + rnd() * 1500;
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     const w = 16 + rnd() * 46, h = 30 + rnd() * rnd() * 220;
     const g = .10 + rnd() * .10;
-    this._box(x, h * .5, z, w, h, w * (.6 + rnd() * .8), rnd() * PI, [g, g * 1.03, g * 1.12], .85, 0, 0, M_FACADE, rnd() * 90);
+    this._box(x, h * .5 - 14, z, w, h, w * (.6 + rnd() * .8), rnd() * PI,
+      [g, g * 1.03, g * 1.12], .85, 0, 0, M_FACADE, rnd() * 90);
   }
   // hills
   for (let k = 0; k < 40; k++) {
@@ -923,7 +1059,17 @@ World.buildTerrain = function (meshes) {
       // resolution falls off with distance from the city — nobody counts
       // polygons on a hillside two kilometres away
       const dFromCity = Math.max(0, Math.hypot(x0 + TILE / 2, z0 + TILE / 2) - this.half);
-      const RES = dFromCity > 1100 ? 4 : dFromCity > 520 ? 8 : 16;
+      let RES = dFromCity > 1100 ? 4 : dFromCity > 520 ? 8 : 16;
+      /* A motorway corridor cuts and fills by twenty metres across sixty, and
+         a nineteen-metre sample interval steps straight over it — the road
+         ends up drawn at the height of the untouched land beside it while the
+         car drives on the graded height, so the car looks buried. Tiles a
+         corridor passes through get built fine enough to show it. */
+      for (let sj = 0; sj <= 4 && RES < 48; sj++) {
+        for (let si = 0; si <= 4; si++) {
+          if (Terrain.corridorNear(x0 + TILE * si / 4, z0 + TILE * sj / 4)) { RES = 48; break; }
+        }
+      }
       const g = new Geo();
       let ylo = 1e9, yhi = -1e9;
       for (let j = 0; j <= RES; j++) {

@@ -258,8 +258,10 @@ class Vehicle {
       this.toWorld(wp, w.lp);
       V3.copy(w.wp, wp);
       const maxLen = w.rest + w.r;
-      const gY = world.groundY(wp[0], wp[2]);
-      world.groundNormal(wp[0], wp[2], gN);
+      // the hub height is what tells the world which surface this wheel is
+      // on when it is standing over a bridge rather than merely near one
+      const gY = world.groundY(wp[0], wp[2], wp[1]);
+      world.groundNormal(wp[0], wp[2], gN, wp[1]);
       let t = 1e9;
       if (down[1] < -0.15) t = (wp[1] - gY) / -down[1];
       w.prevComp = w.comp;
@@ -408,7 +410,7 @@ class Vehicle {
     /* floor guard */
     // last-resort anti-tunnelling floor; must sit well below the static ride
     // height or it carries the car instead of the springs
-    const gy = world.groundY(this.pos[0], this.pos[2]);
+    const gy = world.groundY(this.pos[0], this.pos[2], this.pos[1]);
     if (this.pos[1] < gy - 0.30) { this.pos[1] = gy - 0.30; if (this.vel[1] < 0) this.vel[1] *= -0.15; }
   }
 
@@ -424,6 +426,7 @@ class Vehicle {
       for (let ci = 0; ci < cols.length; ci++) {
         const c = cols[ci];
         if (wp[1] > c.y + r) continue;
+        if (c.y0 !== undefined && wp[1] < c.y0 - r) continue;   // passing underneath
         const cx = clamp(wp[0], c.x0, c.x1), cz = clamp(wp[2], c.z0, c.z1);
         let dx = wp[0] - cx, dz = wp[2] - cz;
         let d = Math.hypot(dx, dz);

@@ -151,6 +151,8 @@ const Game = {
     for (const m of Traffic.models) this.trafBatches.push(this.prepTraffic(m));
     Traffic.buildParked();
     Traffic.populate(this.settings.traffic);
+    RingTraffic.populate(Math.round(this.settings.traffic * 0.55));
+    RoundaboutTraffic.populate(3);
 
     setLoad(.88, 'painting the sky'); await frame();
     this.scene = {
@@ -338,7 +340,10 @@ const Game = {
       const t = v / 1000;
       return t < .21 ? 'night' : t < .3 ? 'dawn' : t < .44 ? 'morning' : t < .58 ? 'noon' : t < .70 ? 'evening' : t < .80 ? 'sunset' : 'night';
     });
-    rng('traffic', 'traffico', v => { S.traffic = v; Traffic.populate(v); }, v => '' + v);
+    rng('traffic', 'traffico', v => {
+      S.traffic = v; Traffic.populate(v);
+      RingTraffic.populate(Math.round(v * 0.55)); RoundaboutTraffic.populate(3);
+    }, v => '' + v);
     rng('steerrate', 'steerrateo', v => S.steerRate = v / 100, v => v + '%');
     rng('shake', 'shakeo', v => S.shake = v / 100, v => v + '%');
     rng('vol', 'volo', v => { S.vol = v / 100; Audio2.setVolume(S.vol); }, v => v + '%');
@@ -850,7 +855,7 @@ const Game = {
     dist += clamp01(kmh / 240) * 1.5;
     dist -= p.boostActive ? .7 : 0;
 
-    const gy = World.groundY(p.pos[0], p.pos[2]);
+    const gy = World.groundY(p.pos[0], p.pos[2], p.pos[1]);
     const tx = p.pos[0] - Math.sin(this.camYaw) * dist;
     const tz = p.pos[2] - Math.cos(this.camYaw) * dist;
     const ty = Math.max(p.pos[1] + height, gy + 1.2);
@@ -1141,23 +1146,38 @@ const Game = {
       const d2 = (t.x - cp[0]) ** 2 + (t.z - cp[2]) ** 2;
       if (d2 > 340 * 340) continue;
       const md = this.trafBatches[t.model], info = md.info;
-      M4.trs(tm, t.x, 0, t.z, t.yaw, 1, 1, 1);
+      M4.trs(tm, t.x, t.y || 0, t.z, t.yaw, 1, 1, 1);
       md.paint.push(tm, t.color[0], t.color[1], t.color[2], .30, .18, 0, M_PAINT, 0);
       md.dark.push(tm, .05, .05, .055, .6, .05, 0, M_PLASTIC, 0);
       md.lightF.push(tm, 1, .95, .85, .2, 0, R.sky.night * 3.0 + .05, M_EMISSIVE, 0);
       md.lightR.push(tm, 1, .1, .07, .2, 0, (R.sky.night * .8 + .1) * (1 + t.brake * 2), M_EMISSIVE, 0);
       md.glass.push(tm, .03, .04, .06, .07, 0, .32, M_GLASSDARK, 0);
-      this.pushTrafficWheels(t, info);
+      this.pushTrafficWheels(t, info, t.y || 0);
     }
+
+    /* motorway and roundabout traffic: same models, different navigation */
+    for (const t of RingTraffic.cars.concat(RoundaboutTraffic.cars)) {
+      const d2 = (t.x - cp[0]) ** 2 + (t.z - cp[2]) ** 2;
+      if (d2 > 460 * 460) continue;
+      const md = this.trafBatches[t.model], info = md.info;
+      M4.trs(tm, t.x, t.y || 0, t.z, t.yaw, 1, 1, 1);
+      md.paint.push(tm, t.color[0], t.color[1], t.color[2], .30, .18, 0, M_PAINT, 0);
+      md.dark.push(tm, .05, .05, .055, .6, .05, 0, M_PLASTIC, 0);
+      md.lightF.push(tm, 1, .95, .85, .2, 0, R.sky.night * 3.0 + .05, M_EMISSIVE, 0);
+      md.lightR.push(tm, 1, .1, .07, .2, 0, (R.sky.night * .8 + .1) * (1 + t.brake * 2), M_EMISSIVE, 0);
+      md.glass.push(tm, .03, .04, .06, .07, 0, .32, M_GLASSDARK, 0);
+      this.pushTrafficWheels(t, info, t.y || 0);
+    }
+
     for (const t of Traffic.parked) {
       const d2 = (t.x - cp[0]) ** 2 + (t.z - cp[2]) ** 2;
       if (d2 > 240 * 240) continue;
       const md = this.trafBatches[t.model], info = md.info;
-      M4.trs(tm, t.x, World.CURB, t.z, t.yaw, 1, 1, 1);
+      M4.trs(tm, t.x, (t.y || 0) + World.CURB, t.z, t.yaw, 1, 1, 1);
       md.paint.push(tm, t.color[0], t.color[1], t.color[2], .34, .16, 0, M_PAINT, 0);
       md.dark.push(tm, .05, .05, .055, .6, .05, 0, M_PLASTIC, 0);
       md.glass.push(tm, .03, .04, .06, .07, 0, .32, M_GLASSDARK, 0);
-      this.pushTrafficWheels({ x: t.x, z: t.z, yaw: t.yaw, wheelSpin: 0 }, info, World.CURB);
+      this.pushTrafficWheels({ x: t.x, z: t.z, yaw: t.yaw, wheelSpin: 0 }, info, (t.y || 0) + World.CURB);
     }
 
     /* --- traffic signal lamps --- */
